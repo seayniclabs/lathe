@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lathe-mcp"
+version = "0.1.0"
+description = "File and media processing MCP server — resize, convert, optimize, extract."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]",
+    "Pillow",
+    "httpx",
+]
+
+[project.optional-dependencies]
+full = [
+    "ffmpeg-python",
+    "pytesseract",
+    "PyPDF2",
+]
+test = [
+    "pytest",
+    "pytest-cov",
+    "pip-audit",
+    "PyPDF2",
+]
+
+[project.scripts]
+lathe = "lathe.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lathe"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "requires_ffmpeg: test requires ffmpeg binary",
+    "requires_tesseract: test requires tesseract binary",
+    "requires_ghostscript: test requires ghostscript binary",
+]
