@@ -23,8 +23,7 @@ from . import image_ops, pdf_ops, media_ops
 
 mcp = FastMCP(
     "Lathe",
-    version=__version__,
-    description="File and media processing MCP server — resize, convert, optimize, extract.",
+    instructions="File and media processing MCP server — resize, convert, optimize, extract.",
 )
 
 # Working directory: default to cwd, can be overridden via LATHE_WORKING_DIR

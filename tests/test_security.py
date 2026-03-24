@@ -102,6 +102,36 @@ class TestCheckFileSize:
             check_file_size(big, max_mb=1)
 
 
+class TestOutputPathSymlinkEscape:
+    def test_symlink_output_escape_rejected(self, sandbox):
+        """A symlink pointing outside the sandbox is rejected for output paths."""
+        # Create a symlink inside the sandbox that resolves outside it
+        link = sandbox / "escape_link"
+        link.symlink_to("/tmp")
+        target = str(link / "evil_output.txt")
+        with pytest.raises(PathSecurityError, match="escapes working directory"):
+            validate_output_path(target, str(sandbox))
+
+    def test_symlink_output_within_sandbox_allowed(self, sandbox):
+        """A symlink resolving within the sandbox is allowed for output."""
+        subdir = sandbox / "real_sub"
+        subdir.mkdir()
+        link = sandbox / "link_sub"
+        link.symlink_to(subdir)
+        result = validate_output_path(str(link / "out.txt"), str(sandbox))
+        assert str(result).startswith(str(sandbox.resolve()))
+
+
+class TestDecompressionBombGuard:
+    def test_max_image_pixels_is_configured(self):
+        """image_ops sets Image.MAX_IMAGE_PIXELS to prevent decompression bombs."""
+        from PIL import Image
+        # Importing image_ops should have already set the limit
+        import lathe.image_ops  # noqa: F401
+        assert Image.MAX_IMAGE_PIXELS is not None
+        assert Image.MAX_IMAGE_PIXELS == 178_956_970
+
+
 class TestDependencyChecks:
     def test_check_python_exists(self):
         # Python itself should always be findable

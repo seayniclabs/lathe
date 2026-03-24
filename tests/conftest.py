@@ -2,6 +2,7 @@
 
 Provides test fixture files and dependency detection helpers.
 Fixture files are small (<5MB total) and committed to the repo.
+PDF fixtures are generated programmatically via pypdf.
 """
 
 import os
@@ -41,6 +42,69 @@ def has_tesseract():
 def has_ghostscript():
     """Check if ghostscript is available."""
     return shutil.which("gs") is not None
+
+
+def _make_pdf(path: Path, text: str, title: str | None = None) -> Path:
+    """Create a minimal single-page PDF with text content.
+
+    Uses pypdf's add_blank_page then injects a content stream with text.
+    """
+    from pypdf import PdfWriter
+    from pypdf.generic import (
+        DecodedStreamObject,
+        DictionaryObject,
+        NameObject,
+    )
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=612, height=792)
+
+    # Add Helvetica font resource
+    font = DictionaryObject()
+    font[NameObject("/Type")] = NameObject("/Font")
+    font[NameObject("/Subtype")] = NameObject("/Type1")
+    font[NameObject("/BaseFont")] = NameObject("/Helvetica")
+
+    if "/Resources" not in page:
+        page[NameObject("/Resources")] = DictionaryObject()
+    resources = page["/Resources"]
+    if "/Font" not in resources:
+        resources[NameObject("/Font")] = DictionaryObject()
+    resources["/Font"][NameObject("/F1")] = writer._add_object(font)
+
+    # Content stream with text
+    stream = DecodedStreamObject()
+    # Escape parentheses in PDF text string
+    safe_text = text.replace("(", "\\(").replace(")", "\\)")
+    stream.set_data(f"BT /F1 12 Tf 72 720 Td ({safe_text}) Tj ET".encode())
+    page[NameObject("/Contents")] = writer._add_object(stream)
+
+    if title:
+        writer.add_metadata({"/Title": title, "/Author": "Lathe Tests"})
+
+    with open(path, "wb") as f:
+        writer.write(f)
+
+    return path
+
+
+@pytest.fixture
+def sample_pdf(tmp_path):
+    """Generate a simple single-page PDF with text content."""
+    return _make_pdf(
+        tmp_path / "sample.pdf",
+        text="Hello from Lathe PDF test",
+        title="Test PDF",
+    )
+
+
+@pytest.fixture
+def two_sample_pdfs(tmp_path):
+    """Generate two simple PDFs for merge testing."""
+    return [
+        _make_pdf(tmp_path / "doc1.pdf", text="Document 1"),
+        _make_pdf(tmp_path / "doc2.pdf", text="Document 2"),
+    ]
 
 
 def pytest_collection_modifyitems(config, items):

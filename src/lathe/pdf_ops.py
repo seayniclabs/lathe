@@ -1,6 +1,6 @@
 """PDF processing operations.
 
-Uses PyPDF2 for text extraction, merge, and metadata.
+Uses pypdf for text extraction, merge, and metadata.
 Uses ghostscript subprocess for PDF-to-image rendering.
 Falls back to tesseract OCR when PDF has no text layer.
 """
@@ -11,24 +11,24 @@ from pathlib import Path
 from .security import check_dependency
 
 
-def _require_pypdf2():
-    """Import and return PyPDF2, raising a clear error if missing."""
+def _require_pypdf():
+    """Import and return pypdf, raising a clear error if missing."""
     try:
-        import PyPDF2
-        return PyPDF2
+        import pypdf
+        return pypdf
     except ImportError:
         raise RuntimeError(
-            "PyPDF2 is required for PDF operations. "
+            "pypdf is required for PDF operations. "
             "Install with: pip install lathe-mcp[full]"
         )
 
 
 def get_info(input_path: Path) -> dict:
     """Extract PDF metadata: page count, file size, title, author, etc."""
-    PyPDF2 = _require_pypdf2()
+    pypdf = _require_pypdf()
 
     with open(input_path, "rb") as f:
-        reader = PyPDF2.PdfReader(f)
+        reader = pypdf.PdfReader(f)
         meta = reader.metadata
 
         info = {
@@ -55,10 +55,10 @@ def extract_text(input_path: Path, pages: str | None = None) -> dict:
     Returns:
         Dict with extracted text and method used.
     """
-    PyPDF2 = _require_pypdf2()
+    pypdf = _require_pypdf()
 
     with open(input_path, "rb") as f:
-        reader = PyPDF2.PdfReader(f)
+        reader = pypdf.PdfReader(f)
         total_pages = len(reader.pages)
 
         # Parse page range
@@ -85,20 +85,19 @@ def extract_text(input_path: Path, pages: str | None = None) -> dict:
 
 def merge(input_paths: list[Path], output_path: Path) -> dict:
     """Merge multiple PDF files into one."""
-    PyPDF2 = _require_pypdf2()
+    pypdf = _require_pypdf()
 
-    merger = PyPDF2.PdfMerger()
+    writer = pypdf.PdfWriter()
     total_pages = 0
 
     for pdf_path in input_paths:
-        with open(pdf_path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
-            total_pages += len(reader.pages)
-            merger.append(f)
+        reader = pypdf.PdfReader(pdf_path)
+        total_pages += len(reader.pages)
+        for page in reader.pages:
+            writer.add_page(page)
 
     with open(output_path, "wb") as out:
-        merger.write(out)
-    merger.close()
+        writer.write(out)
 
     return {
         "input_count": len(input_paths),
@@ -148,9 +147,9 @@ def to_images(
 
     # Add page range if specified
     if pages:
-        PyPDF2 = _require_pypdf2()
+        pypdf = _require_pypdf()
         with open(input_path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
+            reader = pypdf.PdfReader(f)
             total = len(reader.pages)
         indices = _parse_page_range(pages, total)
         first = min(indices) + 1
