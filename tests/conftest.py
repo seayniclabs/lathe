@@ -3,6 +3,10 @@
 Provides test fixture files and dependency detection helpers.
 Fixture files are small (<5MB total) and committed to the repo.
 PDF fixtures are generated programmatically via pypdf.
+
+NOTE: The LATHE_LICENSE_KEY env var is set here so that existing tests
+run in licensed mode (all tools registered). License-specific tests
+handle their own env manipulation.
 """
 
 import os
@@ -10,6 +14,10 @@ import shutil
 from pathlib import Path
 
 import pytest
+
+# Ensure all tests run in licensed mode by default so paid tools are available.
+# This must happen before any lathe module is imported at the module level.
+os.environ.setdefault("LATHE_LICENSE_KEY", "SL-TEST-0000")
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

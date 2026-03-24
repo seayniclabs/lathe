@@ -8,15 +8,28 @@ Transforming raw files into precision output — the Swiss army knife for file p
 
 ## What It Does
 
-Lathe is an MCP server that gives AI assistants direct access to file and media processing operations. 16 tools across four categories handle the most common file transformation tasks: image manipulation, PDF operations, audio/video processing, and OCR text extraction.
+Lathe is an MCP server that gives AI assistants direct access to file and media processing operations. Install the free package for image processing, or purchase a license to unlock all 16 tools across four categories: image manipulation, PDF operations, audio/video processing, and OCR text extraction.
 
-Install the core package for image processing, or install with extras to unlock PDF, media, and OCR capabilities.
+---
+
+## Free vs Full
+
+| | Free | Full (Licensed) |
+|---|---|---|
+| **Image tools** (6) | Included | Included |
+| **PDF tools** (4) | — | Included |
+| **Audio/Video tools** (4) | — | Included |
+| **OCR** (1) | — | Included |
+| **Health + upgrade_info** | Included | Health only |
+| **Total tools** | 8 | 16 |
+| **Install** | `pip install lathe-mcp` | Purchase at [seayniclabs.com](https://seayniclabs.com) |
+| **Price** | Free | $19 one-time |
 
 ---
 
 ## Tool Reference
 
-### Image
+### Image (Free)
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
@@ -27,7 +40,7 @@ Install the core package for image processing, or install with extras to unlock 
 | `image_crop` | Crop a rectangular region | `input_path`, `output_path`, `x`, `y`, `width`, `height` |
 | `image_thumbnail` | Generate a square-fit thumbnail | `input_path`, `output_path`, `size` |
 
-### PDF
+### PDF (Licensed)
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
@@ -36,7 +49,7 @@ Install the core package for image processing, or install with extras to unlock 
 | `pdf_merge` | Merge multiple PDFs into one | `input_paths`, `output_path` |
 | `pdf_to_images` | Convert pages to images (requires ghostscript) | `input_path`, `output_dir`, `pages`, `format` |
 
-### Audio / Video
+### Audio / Video (Licensed)
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
@@ -45,33 +58,59 @@ Install the core package for image processing, or install with extras to unlock 
 | `video_thumbnail` | Extract a frame from video as image | `input_path`, `output_path`, `timestamp` |
 | `video_info` | Get video metadata (duration, resolution, codec) | `input_path` |
 
-### OCR
+### OCR (Licensed)
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `ocr_image` | Extract text from image via Tesseract | `input_path` |
 
-### Utility
+### Utility (Free)
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `health` | Server status, version, dependency availability | — |
+| `health` | Server status, version, tier, dependency availability | — |
+| `upgrade_info` | What the full version includes and where to buy (free tier only) | — |
 
 ---
 
 ## Installation
 
-Core install (image tools only):
+Free install (image tools + health):
 
 ```bash
-pip install lathe-mcp-mcp
+pip install lathe-mcp
 ```
 
-Full install (PDF, audio/video, OCR):
+Full install (all tools — requires license key):
 
 ```bash
 pip install "lathe-mcp[full]"
 ```
+
+### Activating a License
+
+After purchasing at [seayniclabs.com](https://seayniclabs.com), activate your license using either method:
+
+**Option 1: Environment variable**
+
+```bash
+export LATHE_LICENSE_KEY="SL-XXXX-XXXX"
+```
+
+**Option 2: License file**
+
+Place your license at `~/.seayniclabs/license.json`:
+
+```json
+{
+  "key": "SL-XXXX-XXXX",
+  "product": "lathe-mcp",
+  "email": "you@example.com",
+  "issued": "2026-01-01"
+}
+```
+
+The `health` tool reports your current tier (`free` or `licensed`) and available tool count.
 
 ### System Dependencies
 
