@@ -64,7 +64,7 @@ Install the core package for image processing, or install with extras to unlock 
 Core install (image tools only):
 
 ```bash
-pip install lathe-mcp
+pip install lathe-mcp-mcp
 ```
 
 Full install (PDF, audio/video, OCR):
