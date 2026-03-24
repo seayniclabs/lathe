@@ -19,13 +19,13 @@ dependencies = [
 full = [
     "ffmpeg-python",
     "pytesseract",
-    "PyPDF2",
+    "pypdf",
 ]
 test = [
     "pytest",
     "pytest-cov",
     "pip-audit",
-    "PyPDF2",
+    "pypdf",
 ]
 
 [project.scripts]

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from lathe import image_ops
 from lathe.image_ops import convert, crop, get_info, optimize, resize, thumbnail
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -170,3 +171,39 @@ class TestImageThumbnail:
         img = Image.open(out)
         assert img.width <= 64
         assert img.height <= 64
+
+
+class TestDecompressionBombProtection:
+    def test_max_image_pixels_is_set(self):
+        """Image.MAX_IMAGE_PIXELS guard is configured in image_ops."""
+        assert Image.MAX_IMAGE_PIXELS is not None
+        assert Image.MAX_IMAGE_PIXELS == 178_956_970
+
+    def test_oversized_image_raises(self, tmp_path):
+        """Opening an image exceeding MAX_IMAGE_PIXELS raises DecompressionBombError."""
+        # Create a tiny file that claims to be enormous via a crafted header
+        # Instead, temporarily lower the limit and open a normal image
+        original_limit = Image.MAX_IMAGE_PIXELS
+        try:
+            Image.MAX_IMAGE_PIXELS = 100  # absurdly low
+            with pytest.raises(Image.DecompressionBombError):
+                Image.open(FIXTURES / "image_rgb.png").load()
+        finally:
+            Image.MAX_IMAGE_PIXELS = original_limit
+
+
+class TestRgbaToJpegConversion:
+    def test_rgba_image_converts_to_jpeg(self, tmp_path):
+        """Converting an RGBA image to JPEG strips the alpha channel."""
+        # Create an RGBA source image
+        rgba_src = tmp_path / "rgba.png"
+        img = Image.new("RGBA", (100, 100), color=(255, 0, 0, 128))
+        img.save(rgba_src, format="PNG")
+
+        out = tmp_path / "converted.jpg"
+        result = convert(rgba_src, out, "jpeg")
+        assert result["output_format"] == "JPEG"
+
+        # Verify the output is RGB (no alpha)
+        converted = Image.open(out)
+        assert converted.mode == "RGB"

@@ -31,7 +31,7 @@ jobs:
         run: python tests/generate_fixtures.py
 
       - name: Run tests
-        run: pytest -v --cov=lathe --cov-report=xml --cov-fail-under=25
+        run: pytest -v --cov=lathe --cov-report=xml --cov-fail-under=55
 
       - name: Security audit
         run: pip-audit
