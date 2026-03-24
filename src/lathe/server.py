@@ -2,6 +2,9 @@
 
 Exposes image, PDF, audio, and video processing operations as MCP tools.
 Uses FastMCP for tool registration and transport.
+
+Free tier: 6 image tools + health + upgrade_info
+Licensed tier: All 16 tools (images + PDF + audio/video + OCR)
 """
 
 import os
@@ -11,6 +14,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 from . import __version__
+from .license import is_licensed
 from .security import (
     PathSecurityError,
     check_dependency,
@@ -28,6 +32,13 @@ mcp = FastMCP(
 
 # Working directory: default to cwd, can be overridden via LATHE_WORKING_DIR
 WORKING_DIR = os.environ.get("LATHE_WORKING_DIR", os.getcwd())
+
+# License state — evaluated once at server startup
+_licensed = is_licensed()
+
+# Count available tools for health reporting
+_FREE_TOOL_COUNT = 7  # 6 image + health
+_LICENSED_TOOL_COUNT = 16  # all tools
 
 
 def _input(path: str) -> Path:
@@ -48,15 +59,18 @@ def _output(path: str) -> Path:
 def health() -> dict:
     """Check server status, version, and available external dependencies."""
     deps = get_dependency_status()
+    tool_count = _LICENSED_TOOL_COUNT if _licensed else _FREE_TOOL_COUNT + 1  # +1 for upgrade_info
     return {
         "status": "ok",
         "version": __version__,
+        "tier": "licensed" if _licensed else "free",
+        "tools_available": tool_count,
         "working_dir": WORKING_DIR,
         "dependencies": deps,
     }
 
 
-# --- Image Tools ---
+# --- Image Tools (always available) ---
 
 @mcp.tool()
 def image_info(input_path: str) -> dict:
@@ -167,156 +181,182 @@ def image_thumbnail(
     return image_ops.thumbnail(inp, out, size=size)
 
 
-# --- PDF Tools ---
+# --- Licensed Tools (PDF, Audio, Video, OCR) ---
 
-@mcp.tool()
-def pdf_info(input_path: str) -> dict:
-    """Get PDF metadata: page count, file size, title, author, encrypted status.
+if _licensed:
+    # --- PDF Tools ---
 
-    Args:
-        input_path: Path to the PDF file.
-    """
-    path = _input(input_path)
-    return pdf_ops.get_info(path)
+    @mcp.tool()
+    def pdf_info(input_path: str) -> dict:
+        """Get PDF metadata: page count, file size, title, author, encrypted status.
 
+        Args:
+            input_path: Path to the PDF file.
+        """
+        path = _input(input_path)
+        return pdf_ops.get_info(path)
 
-@mcp.tool()
-def pdf_extract_text(input_path: str, pages: str | None = None) -> dict:
-    """Extract text from PDF. Falls back to OCR if no text layer found.
+    @mcp.tool()
+    def pdf_extract_text(input_path: str, pages: str | None = None) -> dict:
+        """Extract text from PDF. Falls back to OCR if no text layer found.
 
-    Args:
-        input_path: Path to the PDF file.
-        pages: Optional page range like "1-3" or "2" (1-indexed).
-    """
-    path = _input(input_path)
-    return pdf_ops.extract_text(path, pages=pages)
+        Args:
+            input_path: Path to the PDF file.
+            pages: Optional page range like "1-3" or "2" (1-indexed).
+        """
+        path = _input(input_path)
+        return pdf_ops.extract_text(path, pages=pages)
 
+    @mcp.tool()
+    def pdf_merge(input_paths: list[str], output_path: str) -> dict:
+        """Merge multiple PDF files into one.
 
-@mcp.tool()
-def pdf_merge(input_paths: list[str], output_path: str) -> dict:
-    """Merge multiple PDF files into one.
+        Args:
+            input_paths: List of paths to PDF files to merge, in order.
+            output_path: Path for the merged PDF.
+        """
+        inputs = [_input(p) for p in input_paths]
+        out = _output(output_path)
+        return pdf_ops.merge(inputs, out)
 
-    Args:
-        input_paths: List of paths to PDF files to merge, in order.
-        output_path: Path for the merged PDF.
-    """
-    inputs = [_input(p) for p in input_paths]
-    out = _output(output_path)
-    return pdf_ops.merge(inputs, out)
+    @mcp.tool()
+    def pdf_to_images(
+        input_path: str,
+        output_dir: str,
+        pages: str | None = None,
+        format: str = "png",
+    ) -> dict:
+        """Convert PDF pages to images. Requires ghostscript.
 
+        Args:
+            input_path: Path to the PDF file.
+            output_dir: Directory for output images.
+            pages: Optional page range like "1-3" (1-indexed).
+            format: Output format: png or jpeg (default png).
+        """
+        inp = _input(input_path)
+        out = _output(os.path.join(output_dir, ".placeholder"))
+        out_dir = out.parent
+        return pdf_ops.to_images(inp, out_dir, pages=pages, fmt=format)
 
-@mcp.tool()
-def pdf_to_images(
-    input_path: str,
-    output_dir: str,
-    pages: str | None = None,
-    format: str = "png",
-) -> dict:
-    """Convert PDF pages to images. Requires ghostscript.
+    # --- Audio Tools ---
 
-    Args:
-        input_path: Path to the PDF file.
-        output_dir: Directory for output images.
-        pages: Optional page range like "1-3" (1-indexed).
-        format: Output format: png or jpeg (default png).
-    """
-    inp = _input(input_path)
-    out = _output(os.path.join(output_dir, ".placeholder"))
-    out_dir = out.parent
-    return pdf_ops.to_images(inp, out_dir, pages=pages, fmt=format)
+    @mcp.tool()
+    def audio_convert(input_path: str, output_path: str, format: str) -> dict:
+        """Convert audio to a different format. Requires ffmpeg.
 
+        Args:
+            input_path: Path to the source audio file.
+            output_path: Path for the converted audio.
+            format: Target format: mp3, wav, flac, aac, ogg.
+        """
+        inp = _input(input_path)
+        out = _output(output_path)
+        return media_ops.audio_convert(inp, out, format)
 
-# --- Audio Tools ---
+    @mcp.tool()
+    def audio_info(input_path: str) -> dict:
+        """Get audio metadata: duration, format, bitrate, sample rate, channels. Requires ffmpeg.
 
-@mcp.tool()
-def audio_convert(input_path: str, output_path: str, format: str) -> dict:
-    """Convert audio to a different format. Requires ffmpeg.
+        Args:
+            input_path: Path to the audio file.
+        """
+        path = _input(input_path)
+        return media_ops.audio_info(path)
 
-    Args:
-        input_path: Path to the source audio file.
-        output_path: Path for the converted audio.
-        format: Target format: mp3, wav, flac, aac, ogg.
-    """
-    inp = _input(input_path)
-    out = _output(output_path)
-    return media_ops.audio_convert(inp, out, format)
+    # --- Video Tools ---
 
+    @mcp.tool()
+    def video_thumbnail(
+        input_path: str,
+        output_path: str,
+        timestamp: float = 0,
+    ) -> dict:
+        """Extract a single frame from a video as an image. Requires ffmpeg.
 
-@mcp.tool()
-def audio_info(input_path: str) -> dict:
-    """Get audio metadata: duration, format, bitrate, sample rate, channels. Requires ffmpeg.
+        Args:
+            input_path: Path to the video file.
+            output_path: Path for the extracted frame image.
+            timestamp: Time in seconds to extract frame from (default 0).
+        """
+        inp = _input(input_path)
+        out = _output(output_path)
+        return media_ops.video_thumbnail(inp, out, timestamp=timestamp)
 
-    Args:
-        input_path: Path to the audio file.
-    """
-    path = _input(input_path)
-    return media_ops.audio_info(path)
+    @mcp.tool()
+    def video_info(input_path: str) -> dict:
+        """Get video metadata: duration, resolution, codec, bitrate, audio tracks. Requires ffmpeg.
 
+        Args:
+            input_path: Path to the video file.
+        """
+        path = _input(input_path)
+        return media_ops.video_info(path)
 
-# --- Video Tools ---
+    # --- OCR Tool ---
 
-@mcp.tool()
-def video_thumbnail(
-    input_path: str,
-    output_path: str,
-    timestamp: float = 0,
-) -> dict:
-    """Extract a single frame from a video as an image. Requires ffmpeg.
+    @mcp.tool()
+    def ocr_image(input_path: str) -> dict:
+        """Extract text from an image using OCR. Requires tesseract.
 
-    Args:
-        input_path: Path to the video file.
-        output_path: Path for the extracted frame image.
-        timestamp: Time in seconds to extract frame from (default 0).
-    """
-    inp = _input(input_path)
-    out = _output(output_path)
-    return media_ops.video_thumbnail(inp, out, timestamp=timestamp)
+        Args:
+            input_path: Path to the image file.
+        """
+        if not check_dependency("tesseract"):
+            raise RuntimeError(
+                "tesseract is required for OCR. "
+                "Install with: brew install tesseract (macOS) / apt install tesseract-ocr (Debian)"
+            )
 
+        path = _input(input_path)
 
-@mcp.tool()
-def video_info(input_path: str) -> dict:
-    """Get video metadata: duration, resolution, codec, bitrate, audio tracks. Requires ffmpeg.
-
-    Args:
-        input_path: Path to the video file.
-    """
-    path = _input(input_path)
-    return media_ops.video_info(path)
-
-
-# --- OCR Tool ---
-
-@mcp.tool()
-def ocr_image(input_path: str) -> dict:
-    """Extract text from an image using OCR. Requires tesseract.
-
-    Args:
-        input_path: Path to the image file.
-    """
-    if not check_dependency("tesseract"):
-        raise RuntimeError(
-            "tesseract is required for OCR. "
-            "Install with: brew install tesseract (macOS) / apt install tesseract-ocr (Debian)"
+        result = subprocess.run(
+            ["tesseract", str(path), "stdout"],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
 
-    path = _input(input_path)
+        if result.returncode != 0:
+            raise RuntimeError(f"Tesseract failed: {result.stderr}")
 
-    result = subprocess.run(
-        ["tesseract", str(path), "stdout"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+        text = result.stdout.strip()
+        return {
+            "text": text,
+            "char_count": len(text),
+            "input_path": str(path),
+        }
 
-    if result.returncode != 0:
-        raise RuntimeError(f"Tesseract failed: {result.stderr}")
+else:
+    # --- Free tier: show upgrade info instead of paid tools ---
 
-    text = result.stdout.strip()
-    return {
-        "text": text,
-        "char_count": len(text),
-        "input_path": str(path),
-    }
+    @mcp.tool()
+    def upgrade_info() -> dict:
+        """Information about the full licensed version of Lathe.
+
+        The free version includes 6 image processing tools. The full version
+        adds PDF operations, audio/video processing, and OCR — 16 tools total.
+        """
+        return {
+            "current_tier": "free",
+            "free_tools": [
+                "image_info", "image_resize", "image_convert",
+                "image_optimize", "image_crop", "image_thumbnail",
+                "health",
+            ],
+            "paid_tools": [
+                "pdf_info", "pdf_extract_text", "pdf_merge", "pdf_to_images",
+                "audio_convert", "audio_info",
+                "video_thumbnail", "video_info",
+                "ocr_image",
+            ],
+            "price": "$19 — one-time purchase",
+            "purchase_url": "https://seayniclabs.com",
+            "activation": (
+                "Set the LATHE_LICENSE_KEY environment variable, or place your "
+                "license file at ~/.seayniclabs/license.json"
+            ),
+        }
 
 
 def main():
