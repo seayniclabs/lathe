@@ -202,3 +202,5 @@ python -m pytest tests/ -q
 Proprietary. Copyright (c) 2026 Seaynic Labs LLC. All rights reserved.
 
 See [LICENSE](LICENSE) for details.
+
+<!-- mcp-name: io.github.seayniclabs/lathe -->
