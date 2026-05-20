@@ -359,8 +359,23 @@ else:
         }
 
 
+def _log_startup_dependencies() -> None:
+    """Print optional dependency availability to stderr on server start."""
+    import sys
+
+    for name, info in get_dependency_status().items():
+        if info["available"]:
+            print(f"[Lathe] {name}: available", file=sys.stderr)
+        else:
+            print(
+                f"[Lathe] {name}: not found — install with: {info['install_hint']}",
+                file=sys.stderr,
+            )
+
+
 def main():
     """Run the Lathe MCP server."""
+    _log_startup_dependencies()
     mcp.run()
 
 
