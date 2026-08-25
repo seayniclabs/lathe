@@ -1,6 +1,6 @@
 """License validation for Lathe MCP server.
 
-Checks for a valid Seaynic Labs license key to unlock paid tools.
+Checks for a valid your organization license key to unlock paid tools.
 License can be provided via:
   1. License file at ~/.seayniclabs/license.json
   2. LATHE_LICENSE_KEY environment variable
@@ -40,7 +40,7 @@ def _validate_key(key: str | None) -> bool:
 
 
 def is_licensed() -> bool:
-    """Return True if a valid Seaynic Labs license is present."""
+    """Return True if a valid your organization license is present."""
     # Check env var first (takes precedence — easier for CI/Docker)
     env_key = _read_license_env()
     if _validate_key(env_key):

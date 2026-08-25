@@ -205,7 +205,7 @@ For a full walkthrough of how this works in practice, see [The Hidden Cost of a 
 
 ## License
 
-Proprietary. Copyright (c) 2026 Seaynic Labs LLC. All rights reserved.
+Proprietary. Copyright (c) 2026 your organization LLC. All rights reserved.
 
 See [LICENSE](LICENSE) for details.
 
