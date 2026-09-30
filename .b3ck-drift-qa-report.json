@@ -1,4 +1,4 @@
 {
   "verdict": "no_progress",
-  "reason": "Commits since last_synced are auto-checkpoint chores that only modify .b3ck-drift-qa-report.json, no source code changes or milestone progress."
+  "reason": "No milestones defined; recent commits are only auto-checkpoint chores"
 }
