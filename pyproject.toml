@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lathe-mcp"
-version = "0.2.1"
+version = "0.2.2"
 description = "File and media processing MCP server — resize, convert, optimize, extract."
 readme = "README.md"
 license = "LicenseRef-Proprietary"
@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Text Processing",
 ]
 dependencies = [
-    "mcp[cli]",
+    "mcp[cli]>=1.2,<2",
     "Pillow",
     "httpx",
 ]
