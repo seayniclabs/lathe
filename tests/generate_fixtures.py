@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate test fixture files for Lathe integration tests.
 
-Run once to create the fixtures directory with small sample files.
-These are committed to the repo — no need to regenerate unless changing test cases.
+The fixtures are gitignored; tests/conftest.py runs generate() at session start
+when any is missing, so a clean checkout tests without a manual step.
 """
 
 import struct
@@ -75,11 +75,14 @@ def create_large_marker():
     print("Created LARGE_IMAGE_README.md (generate image_large.png locally)")
 
 
-if __name__ == "__main__":
-    print(f"Generating fixtures in {FIXTURES}/")
+def generate():
     create_rgb_png()
     create_exif_jpg()
     create_text_image()
     create_wav()
     create_large_marker()
-    print("Done. Add fixtures/ to git.")
+
+
+if __name__ == "__main__":
+    print(f"Generating fixtures in {FIXTURES}/")
+    generate()

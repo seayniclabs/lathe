@@ -1,7 +1,7 @@
 """Lathe MCP server test fixtures.
 
 Provides test fixture files and dependency detection helpers.
-Fixture files are small (<5MB total) and committed to the repo.
+Fixture files are generated at session start when missing (they are gitignored).
 PDF fixtures are generated programmatically via pypdf.
 
 NOTE: The LATHE_LICENSE_KEY env var is set here so that existing tests
@@ -113,6 +113,18 @@ def two_sample_pdfs(tmp_path):
         _make_pdf(tmp_path / "doc1.pdf", text="Document 1"),
         _make_pdf(tmp_path / "doc2.pdf", text="Document 2"),
     ]
+
+
+def pytest_sessionstart(session):
+    """Generate the gitignored media fixtures on a clean checkout."""
+    needed = ("image_rgb.png", "image_exif.jpg", "text_image.png", "audio.wav")
+    if not all((FIXTURES_DIR / name).exists() for name in needed):
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).parent))
+        from generate_fixtures import generate
+
+        generate()
 
 
 def pytest_collection_modifyitems(config, items):
