@@ -15,5 +15,10 @@ Free media MCP server for images, video, OCR and PDFs (Pillow, ffmpeg-python, py
 - 2026-10-22: tests generate their own fixtures; a clean checkout passes 106/106.
 
 ## Next Steps
-1. Charlie: decide D-1 (make all 16 tools free, recommended; the key check accepts any `SL-` key and there is no purchase page) and D-2 (MIT + public repo, recommended; README badge still says Proprietary). See `blueprint show lathe` (drafted 2026-10-22, gate open)
-2. Watch for the next `mcp` major version and test before lifting the `<2` pin
+
+1. [Batch 2] Cut 0.3.0: all 16 tools free, SL- key gate removed (D-1), MIT in LICENSE, README badge and pyproject (D-2), git tag + GitHub release (lathe-1, lathe-2)
+2. [Batch 2] README: `uvx lathe-mcp` one-liner and Claude Code / Claude Desktop / Cursor config blocks (lathe-3)
+3. [Batch 2] Report the package version in serverInfo, not the mcp SDK version (lathe-5)
+4. [Batch 2] server.json + MCP registry, Smithery and Glama as 'Lathe — local media tools' (lathe-4)
+5. Watch for the next `mcp` major version and test before lifting the `<2` pin
+
