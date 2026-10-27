@@ -62,7 +62,28 @@ class VideoInfo(BaseModel):
     audio_tracks: list[AudioTrack]
 
 
+_PLAYLIST_MARKERS = (b"#EXTM3U", b"ffconcat", b"[playlist]", b"<?xml", b"<smil")
+
+
+def _refuse_playlists(path: str) -> None:
+    """Playlist, concat and manifest files make ffmpeg open other files or URLs they name. Refuse them."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(512).lstrip(b"\xef\xbb\xbf \t\r\n")
+    except OSError:
+        return  # a missing input is reported by ffmpeg itself
+    if head.lower().startswith(tuple(m.lower() for m in _PLAYLIST_MARKERS)) or head.startswith(b"file "):
+        raise LatheError("media", "unsupported_input", "playlist, concat and manifest files are not accepted.",
+                         "pass a single media file, e.g. .mp4, .mov, .mp3 or .wav.")
+
+
 def _run(cmd: list[str], timeout: int, what: str) -> subprocess.CompletedProcess:
+    # Inputs are the arguments after -i (ffmpeg) or the last argument (ffprobe).
+    inputs = [cmd[i + 1] for i, a in enumerate(cmd[:-1]) if a == "-i"] if cmd[0] == "ffmpeg" else [cmd[-1]]
+    for path in inputs:
+        _refuse_playlists(path)
+    # Local files only: no http(s), tcp, data: or other protocols, whatever the input names inside it.
+    cmd = [cmd[0], "-protocol_whitelist", "file,pipe", *cmd[1:]]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     if result.returncode != 0:
         raise LatheError("media", "failed", f"{what} failed: {result.stderr.strip()[-300:]}",

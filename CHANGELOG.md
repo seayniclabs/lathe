@@ -4,6 +4,7 @@ Lathe follows [semantic versioning](https://semver.org). New modules ship switch
 
 ## 0.3.0
 
+- Security: ffmpeg and ffprobe only read local files (`-protocol_whitelist file,pipe`), and playlist, concat and manifest inputs are refused, so a crafted media file can't make Lathe fetch URLs or read other files.
 - Free: all tools are included. The license-key gate and the upgrade tool are gone.
 - MIT everywhere: `LICENSE`, the README and `pyproject.toml` agree.
 - Four modules: `images` (Pillow), `pdf` (pypdf, ghostscript), `media` (ffmpeg, ffprobe) and `ocr` (pytesseract, tesseract). Each can be switched on or off with `LATHE_<MODULE>_ENABLED`.

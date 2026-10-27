@@ -4,6 +4,7 @@ Tests that need ffmpeg, tesseract or ghostscript are skipped when the program is
 Everything runs inside a temporary working directory.
 """
 
+import subprocess
 import asyncio
 import re
 
@@ -267,6 +268,34 @@ def test_video_thumbnail(box):
     out = call(server(box), "video_thumbnail", input_path="clip.mp4", output_path="frame.png", timestamp=0.2)
     assert Image.open(box / "frame.png").size == (160, 120)
     assert out["timestamp_seconds"] == 0.2
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize("name,body", [
+    ("list.m3u8", b"#EXTM3U\n#EXTINF:1,\nhttp://example.invalid/a.ts\n"),
+    ("list.mp4", b"ffconcat version 1.0\nfile '/etc/hosts'\n"),
+    ("plain.mov", b"file '/etc/hosts'\n"),
+])
+def test_media_refuses_playlists_and_concat(box, name, body):
+    # A playlist or concat list would make ffmpeg open other files or URLs it names.
+    (box / name).write_bytes(body)
+    for tool, args in [("audio_info", {}), ("video_info", {}),
+                       ("audio_convert", {"output_path": "o.wav", "format": "wav"})]:
+        with pytest.raises(Exception) as err:
+            call(server(box), tool, input_path=name, **args)
+        assert code_of(err) == "unsupported_input", tool
+
+
+def test_media_commands_allow_local_files_only(monkeypatch, tmp_path):
+    from lathe.modules import media
+    seen = []
+    monkeypatch.setattr(media.subprocess, "run",
+                        lambda cmd, **kw: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, "{}", ""))
+    src = tmp_path / "a.wav"
+    src.write_bytes(b"RIFF....WAVE")
+    media._run(["ffprobe", "-v", "quiet", str(src)], 5, "ffprobe")
+    media._run(["ffmpeg", "-nostdin", "-i", str(src), str(tmp_path / "b.wav")], 5, "ffmpeg")
+    assert all(c[1:3] == ["-protocol_whitelist", "file,pipe"] for c in seen)
 
 
 def test_media_tool_without_ffprobe_names_the_fix(monkeypatch, box):
