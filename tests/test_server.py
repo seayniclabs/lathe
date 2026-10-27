@@ -1,150 +1,154 @@
-"""Tests for Lathe MCP server helpers and health tool."""
+"""Start-and-list, discovery, module switches, missing pieces, config, and the real transports.
 
+Nothing here touches the network or needs external programs. Every test starts from an empty environment.
+"""
+
+import asyncio
+import json
 import os
-from pathlib import Path
-from unittest.mock import patch
+import socket
+import subprocess
+import sys
+import time
 
+import httpx
 import pytest
 
 from lathe import __version__
-from lathe.security import PathSecurityError
+from lathe.config import Config
+import lathe.modules as modules
+from lathe.server import build_server
+
+ALL = {
+    "health", "lathe_modules",
+    "image_info", "image_resize", "image_convert", "image_optimize", "image_crop", "image_thumbnail",
+    "pdf_info", "pdf_extract_text", "pdf_merge", "pdf_to_images",
+    "audio_info", "audio_convert", "video_info", "video_thumbnail",
+    "ocr_image",
+}
 
 
-class TestHealth:
-    def test_health_returns_status(self):
-        from lathe.server import health
-
-        result = health()
-        assert result["status"] == "ok"
-
-    def test_health_returns_version(self):
-        from lathe.server import health
-
-        result = health()
-        assert result["version"] == __version__
-
-    def test_health_returns_working_dir(self):
-        from lathe.server import health
-
-        result = health()
-        assert "working_dir" in result
-        assert isinstance(result["working_dir"], str)
-
-    def test_health_returns_dependency_structure(self):
-        from lathe.server import health
-
-        result = health()
-        deps = result["dependencies"]
-        assert "ffmpeg" in deps
-        assert "tesseract" in deps
-        assert "ghostscript" in deps
-        for name, info in deps.items():
-            assert "available" in info
-            assert "install_hint" in info
+def server(env=None, **kw):
+    return build_server(Config(env=env or {}, file_data={}), **kw)
 
 
-class TestInputHelper:
-    def test_input_validates_and_checks_size(self, tmp_path):
-        """_input chains path validation + size check."""
-        test_file = tmp_path / "valid.txt"
-        test_file.write_text("hello")
-
-        from lathe.server import _input, WORKING_DIR
-        import lathe.server as srv
-
-        original = srv.WORKING_DIR
-        try:
-            srv.WORKING_DIR = str(tmp_path)
-            result = _input(str(test_file))
-            assert result == test_file.resolve()
-        finally:
-            srv.WORKING_DIR = original
-
-    def test_input_rejects_traversal(self, tmp_path):
-        """_input rejects paths that escape the working directory."""
-        import lathe.server as srv
-
-        original = srv.WORKING_DIR
-        try:
-            srv.WORKING_DIR = str(tmp_path)
-            from lathe.server import _input
-
-            with pytest.raises(PathSecurityError):
-                _input(str(tmp_path / "../../etc/passwd"))
-        finally:
-            srv.WORKING_DIR = original
-
-    def test_input_rejects_missing_file(self, tmp_path):
-        """_input raises FileNotFoundError for nonexistent files."""
-        import lathe.server as srv
-
-        original = srv.WORKING_DIR
-        try:
-            srv.WORKING_DIR = str(tmp_path)
-            from lathe.server import _input
-
-            with pytest.raises(FileNotFoundError):
-                _input(str(tmp_path / "ghost.txt"))
-        finally:
-            srv.WORKING_DIR = original
-
-    def test_input_rejects_oversized_file(self, tmp_path):
-        """_input rejects files exceeding the size limit."""
-        big = tmp_path / "big.bin"
-        big.write_bytes(b"\x00" * (501 * 1024 * 1024))
-
-        import lathe.server as srv
-
-        original = srv.WORKING_DIR
-        try:
-            srv.WORKING_DIR = str(tmp_path)
-            from lathe.server import _input
-
-            with pytest.raises(ValueError, match="too large"):
-                _input(str(big))
-        finally:
-            srv.WORKING_DIR = original
+def tool_names(mcp):
+    return {t.name for t in asyncio.run(mcp.list_tools())}
 
 
-class TestOutputHelper:
-    def test_output_validates_path(self, tmp_path):
-        """_output chains path validation for output files."""
-        import lathe.server as srv
+def call(mcp, name, **args):
+    _, structured = asyncio.run(mcp.call_tool(name, args))
+    return structured
 
-        original = srv.WORKING_DIR
-        try:
-            srv.WORKING_DIR = str(tmp_path)
-            from lathe.server import _output
 
-            result = _output(str(tmp_path / "out.png"))
-            assert result == (tmp_path / "out.png").resolve()
-        finally:
-            srv.WORKING_DIR = original
+def test_empty_env_starts_and_lists_every_tool():
+    assert tool_names(server({})) == ALL
 
-    def test_output_rejects_traversal(self, tmp_path):
-        """_output rejects output paths that escape the working directory."""
-        import lathe.server as srv
 
-        original = srv.WORKING_DIR
-        try:
-            srv.WORKING_DIR = str(tmp_path)
-            from lathe.server import _output
+def test_every_tool_has_an_output_schema():
+    assert all(t.outputSchema for t in asyncio.run(server({}).list_tools()))
 
-            with pytest.raises(PathSecurityError):
-                _output(str(tmp_path / "../../tmp/evil.txt"))
-        finally:
-            srv.WORKING_DIR = original
 
-    def test_output_creates_parent_dirs(self, tmp_path):
-        """_output creates parent directories if they don't exist."""
-        import lathe.server as srv
+def test_module_switch_off_hides_its_tools():
+    names = tool_names(server({"LATHE_PDF_ENABLED": "false"}))
+    assert not any(n.startswith("pdf_") for n in names)
+    assert "image_info" in names
 
-        original = srv.WORKING_DIR
-        try:
-            srv.WORKING_DIR = str(tmp_path)
-            from lathe.server import _output
 
-            result = _output(str(tmp_path / "sub" / "dir" / "file.txt"))
-            assert result.parent.exists()
-        finally:
-            srv.WORKING_DIR = original
+def test_config_file_is_read_and_env_wins(tmp_path):
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('[core]\nworking_dir = "/from/file"\n\n[ocr]\nlang = "fra"\n\n[media]\nenabled = false\n')
+    env = {"LATHE_CONFIG": str(cfg_file), "LATHE_OCR_LANG": "eng"}
+    cfg = Config(env=env)
+    assert cfg.get("ocr", "lang") == "eng"
+    assert cfg.get("core", "working_dir") == "/from/file"
+    assert cfg.enabled("media", True) is False
+
+
+def test_malformed_config_file_does_not_crash(tmp_path):
+    bad = tmp_path / "config.toml"
+    bad.write_text("this is = not [valid toml")
+    mcp = build_server(Config(env={"LATHE_CONFIG": str(bad)}))
+    out = call(mcp, "lathe_modules")
+    assert "ignored" in out["config_error"]
+    assert len(tool_names(mcp)) == len(ALL)
+
+
+def test_discovery_reports_missing_pieces_with_install_command(monkeypatch):
+    monkeypatch.setattr(modules, "_which", lambda name: None)
+    monkeypatch.setattr(modules, "_has_python_module", lambda name: False)
+    out = call(server({}), "lathe_modules", module="pdf")
+    pdf = out["modules"][0]
+    assert pdf["available"] is False
+    assert {m["name"] for m in pdf["missing"]} == {"pypdf", "gs"}
+    assert any(m["install"] == 'pip install "lathe-mcp[pdf]"' for m in pdf["missing"])
+    tool = {t["name"]: t for t in pdf["tools"]}["pdf_to_images"]
+    assert tool["available"] is False
+
+
+def test_unavailable_tool_names_the_fix_and_still_starts(monkeypatch, box):
+    monkeypatch.setattr(modules, "_which", lambda name: None)
+    mcp = server({"LATHE_WORKING_DIR": str(box)})
+    assert "ocr_image" in tool_names(mcp)
+    with pytest.raises(Exception) as err:
+        call(mcp, "ocr_image", input_path="x.png")
+    assert "lathe.ocr.unavailable" in str(err.value) and "Fix: run:" in str(err.value)
+
+
+def test_images_module_is_always_available():
+    out = call(server({}), "lathe_modules", module="images")
+    assert out["modules"][0]["available"] is True and out["modules"][0]["missing"] == []
+
+
+def test_discovery_detail_lists_settings_without_values():
+    out = call(server({"LATHE_OCR_LANG": "secret-looking-value"}), "lathe_modules", module="ocr")
+    settings = {s["env_var"]: s for s in out["modules"][0]["settings"]}
+    assert settings["LATHE_OCR_LANG"]["set"] is True
+    assert "secret-looking-value" not in json.dumps(out)
+
+
+def test_health_lists_dependencies():
+    out = call(server({}), "health")
+    assert out["status"] == "ok" and out["version"] == __version__
+    assert {d["name"] for d in out["dependencies"]} >= {"pypdf", "pytesseract", "ffmpeg", "tesseract", "gs"}
+
+
+def test_stdio_process_starts_with_empty_env(tmp_path):
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(tmp_path)}
+    proc = subprocess.Popen([sys.executable, "-m", "lathe.server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, env=env, text=True, cwd=tmp_path)
+    msgs = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "0"}}},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+    ]
+    out, _ = proc.communicate("".join(json.dumps(m) + "\n" for m in msgs), timeout=120)
+    replies = {r.get("id"): r for r in map(json.loads, out.splitlines()) if r.get("id")}
+    assert replies[1]["result"]["serverInfo"] == {"name": "lathe", "version": __version__}
+    assert {t["name"] for t in replies[2]["result"]["tools"]} == ALL
+
+
+def test_streamable_http_answers_initialize(tmp_path):
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(tmp_path)}
+    proc = subprocess.Popen([sys.executable, "-m", "lathe.server", "--transport", "http", "--port", str(port)],
+                            env=env, cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "0"}}}
+        headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+        reply = None
+        for _ in range(100):
+            try:
+                reply = httpx.post(f"http://127.0.0.1:{port}/mcp", json=body, headers=headers, timeout=2)
+                break
+            except httpx.HTTPError:
+                time.sleep(0.2)
+        assert reply is not None and reply.status_code == 200
+        assert '"name":"lathe"' in reply.text.replace(" ", "") and __version__ in reply.text
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)

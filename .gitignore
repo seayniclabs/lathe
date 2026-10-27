@@ -1,14 +1,14 @@
-__pycache__
+__pycache__/
 *.pyc
 .venv/
+venv/
 dist/
-*.egg-info
-.pytest_cache
+build/
+*.egg-info/
+.pytest_cache/
 .coverage
 htmlcov/
-tests/fixtures/*.png
-tests/fixtures/*.jpg
-tests/fixtures/*.wav
-tests/fixtures/*.mp3
-tests/fixtures/*.mp4
-tests/fixtures/*.pdf
+.env
+.env.*
+# Internal reports stay on the machine that made them.
+*-drift-qa-report.json

@@ -2,17 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.seayniclabs/lathe",
   "title": "Lathe",
-  "description": "Image processing — resize, crop, convert, optimize, and thumbnail generation.",
+  "description": "Local file and media tools: images, PDFs, audio and video, and OCR. Runs on your machine.",
   "repository": {
     "url": "https://github.com/seayniclabs/lathe",
     "source": "github"
   },
-  "version": "0.2.2",
+  "version": "0.3.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "lathe-mcp",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       }

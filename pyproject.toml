@@ -4,47 +4,34 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lathe-mcp"
-version = "0.2.2"
-description = "File and media processing MCP server — resize, convert, optimize, extract."
+version = "0.3.0"
+description = "MCP bundle for anyone who handles files and media: images, PDFs, audio and video, and OCR, all on your machine."
 readme = "README.md"
-license = "LicenseRef-Proprietary"
-requires-python = ">=3.12"
-authors = [
-    { name = "Seaynic Labs", email = "helloREDACTED" },
-]
-keywords = ["mcp", "file-processing", "image", "pdf", "audio", "video", "ocr"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: Other/Proprietary License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Multimedia :: Graphics",
-    "Topic :: Multimedia :: Sound/Audio :: Conversion",
-    "Topic :: Text Processing",
-]
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Seaynic Labs" }]
+# mcp is capped below 2: 2.x removed FastMCP, and unpinned installs crash.
 dependencies = [
-    "mcp[cli]>=1.2,<2",
-    "Pillow",
-    "httpx",
+    "mcp[cli]>=1.27,<2",
+    "Pillow>=10.0",
+    "pydantic>=2.7",
+]
+keywords = ["mcp", "model-context-protocol", "files", "image", "pdf", "audio", "video", "ocr"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
 ]
 
 [project.urls]
-Homepage = "https://seayniclabs.com"
 Repository = "https://github.com/seayniclabs/lathe"
 
 [project.optional-dependencies]
-full = [
-    "ffmpeg-python",
-    "pytesseract",
-    "pypdf",
-]
-test = [
-    "pytest",
-    "pytest-cov",
-    "pip-audit",
-    "pypdf",
-]
+# Python extras. System programs (ffmpeg, tesseract, ghostscript) are installed separately; the health tool says which are missing.
+pdf = ["pypdf>=4"]
+ocr = ["pytesseract>=0.3.10"]
+full = ["pypdf>=4", "pytesseract>=0.3.10"]
+dev = ["pytest>=8", "pypdf>=4", "pytesseract>=0.3.10"]
 
 [project.scripts]
 lathe = "lathe.server:main"
@@ -55,10 +42,7 @@ packages = ["src/lathe"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "requires_ffmpeg: test requires ffmpeg binary",
-    "requires_tesseract: test requires tesseract binary",
-    "requires_ghostscript: test requires ghostscript binary",
+    "requires_ffmpeg: needs the ffmpeg and ffprobe programs",
+    "requires_tesseract: needs the tesseract program and pytesseract",
+    "requires_ghostscript: needs the ghostscript program and pypdf",
 ]
-
-[tool.hatch.build.targets.sdist]
-exclude = [".REDACTED-drift-qa-report.json"]

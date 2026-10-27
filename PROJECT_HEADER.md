@@ -1,24 +1,18 @@
 # Lathe
 
-**Type:** MCP server (free, MIT)  
-**Status:** active  
-**Owner:** Charlie  
-**Last Updated:** 2026-10-22
+**Type:** MCP bundle (free, MIT)
+**Status:** active
+**Publisher:** Seaynic Labs
+**Version:** 0.3.0 (release pending)
 
 ## Purpose
-Free media MCP server for images, video, OCR and PDFs (Pillow, ffmpeg-python, pytesseract, pypdf). Published on PyPI as `lathe-mcp`; repo github.com/seayniclabs/lathe.
+Local MCP tools for files and media: images, PDFs, audio and video, and OCR. Published on PyPI as `lathe-mcp`; source at github.com/seayniclabs/lathe.
 
-## Current State
-- **0.2.2 on PyPI (2026-10-19):** pins `mcp<2` (2.x removed FastMCP), which fixed the crash on a fresh install; a fresh `pip install` was verified working.
-- One of the two MCPs in the free catalog on Bridge (with Bench), as of 2026-10-19.
-- Kept active by Charlie 2026-10-20. Blueprint drafted 2026-10-22 (gate open on D-1, D-2).
-- 2026-10-22: tests generate their own fixtures; a clean checkout passes 106/106.
+## Current state
+- 0.2.2 is on PyPI (pins `mcp<2`). 0.3.0 makes all 17 tools free, drops the license-key gate, uses MIT throughout, adds the module switches, and brings the bundle to the bundle standard.
+- Verified locally for 0.3.0: 44 tests pass with ffmpeg, tesseract and ghostscript installed, and 36 pass with them absent.
 
-## Next Steps
-
-1. [Batch 2] Cut 0.3.0: all 16 tools free, SL- key gate removed (D-1), MIT in LICENSE, README badge and pyproject (D-2), git tag + GitHub release (lathe-1, lathe-2)
-2. [Batch 2] README: `uvx lathe-mcp` one-liner and Claude Code / Claude Desktop / Cursor config blocks (lathe-3)
-3. [Batch 2] Report the package version in serverInfo, not the mcp SDK version (lathe-5)
-4. [Batch 2] server.json + MCP registry, Smithery and Glama as 'Lathe — local media tools' (lathe-4)
-5. Watch for the next `mcp` major version and test before lifting the `<2` pin
-
+## Next steps
+1. Tag and release 0.3.0 once the public repository is reset to a fresh history.
+2. Publish the registry entry from `server.json`.
+3. Watch for the next `mcp` major version and test before lifting the `<2` pin.

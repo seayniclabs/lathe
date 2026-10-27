@@ -1,212 +1,176 @@
-# Lathe — File & Media Processing MCP Server
+# Lathe
+<!-- mcp-name: io.github.seayniclabs/lathe -->
 
-Transforming raw files into precision output — the Swiss army knife for file processing.
+Lathe is an MCP bundle for anyone who handles files and media. It gives an AI assistant local tools for images, PDFs, audio and video, and OCR, so the files never leave your machine.
 
-![License: Proprietary](https://img.shields.io/badge/license-proprietary-D97706)
+It is a **bundle**: one server made of modules. Each module can be switched on or off. New modules arrive switched off, so an update never changes what your assistant can do until you choose to.
 
----
-
-## What It Does
-
-Lathe is an MCP server that gives AI assistants direct access to file and media processing operations. Install the free package for image processing, or purchase a license to unlock all 16 tools across four categories: image manipulation, PDF operations, audio/video processing, and OCR text extraction.
-
----
-
-## Free vs Full
-
-| | Free | Full (Licensed) |
+| Module | What it does | Status |
 |---|---|---|
-| **Image tools** (6) | Included | Included |
-| **PDF tools** (4) | — | Included |
-| **Audio/Video tools** (4) | — | Included |
-| **OCR** (1) | — | Included |
-| **Health + upgrade_info** | Included | Health only |
-| **Total tools** | 8 | 16 |
-| **Install** | `pip install lathe-mcp` | Purchase at [seayniclabs.com](https://seayniclabs.com) |
-| **Price** | Free | $19 one-time |
+| `images` | Info, resize, convert, optimize, crop and thumbnail. Pillow, always available. | 0.3, ready |
+| `pdf` | Info, text extraction (with OCR for scanned pages), merge, and rendering pages to images | 0.3, ready |
+| `media` | Audio and video info, audio conversion, and a frame from a video (ffmpeg) | 0.3, ready |
+| `ocr` | Read the text in an image (Tesseract) | 0.3, ready |
 
----
+Lathe is free and MIT licensed. All 17 tools are included.
 
-## Tool Reference
+Lathe works with any MCP client: Claude Desktop, Claude Code, Cursor, VS Code, Sonique, Hermes, OpenClaw and others.
 
-### Image (Free)
+## Install
 
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `image_info` | Get image metadata (dimensions, format, mode, EXIF) | `input_path` |
-| `image_resize` | Resize with aspect ratio preservation | `input_path`, `output_path`, `width`, `height`, `percentage` |
-| `image_convert` | Convert format (png, jpeg, webp, avif, bmp) | `input_path`, `output_path`, `format` |
-| `image_optimize` | Optimize for web delivery | `input_path`, `output_path`, `quality`, `strip_metadata` |
-| `image_crop` | Crop a rectangular region | `input_path`, `output_path`, `x`, `y`, `width`, `height` |
-| `image_thumbnail` | Generate a square-fit thumbnail | `input_path`, `output_path`, `size` |
-
-### PDF (Licensed)
-
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `pdf_info` | Get PDF metadata (pages, title, author, encryption) | `input_path` |
-| `pdf_extract_text` | Extract text, with OCR fallback | `input_path`, `pages` |
-| `pdf_merge` | Merge multiple PDFs into one | `input_paths`, `output_path` |
-| `pdf_to_images` | Convert pages to images (requires ghostscript) | `input_path`, `output_dir`, `pages`, `format` |
-
-### Audio / Video (Licensed)
-
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `audio_convert` | Convert audio format (mp3, wav, flac, aac, ogg) | `input_path`, `output_path`, `format` |
-| `audio_info` | Get audio metadata (duration, bitrate, sample rate) | `input_path` |
-| `video_thumbnail` | Extract a frame from video as image | `input_path`, `output_path`, `timestamp` |
-| `video_info` | Get video metadata (duration, resolution, codec) | `input_path` |
-
-### OCR (Licensed)
-
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `ocr_image` | Extract text from image via Tesseract | `input_path` |
-
-### Utility (Free)
-
-| Tool | Description | Key Parameters |
-|------|-------------|----------------|
-| `health` | Server status, version, tier, dependency availability | — |
-| `upgrade_info` | What the full version includes and where to buy (free tier only) | — |
-
----
-
-## Installation
-
-Free install (image tools + health):
+Lathe needs Python 3.11 or newer. With [uv](https://docs.astral.sh/uv/) you don't install anything ahead of time. Choose the extras for the modules you use:
 
 ```bash
-pip install lathe-mcp
+uvx --from lathe-mcp lathe --version                  # images and media
+uvx --from "lathe-mcp[pdf,ocr]" lathe --version       # with PDF and OCR
 ```
 
-Full install (all tools — requires license key):
+Or with pip:
 
 ```bash
-pip install "lathe-mcp[full]"
+pip install "lathe-mcp[pdf,ocr]"
 ```
 
-### Activating a License
+Extras: `pdf` (pypdf), `ocr` (pytesseract), `full` (both). The images module needs nothing extra.
 
-After purchasing at [seayniclabs.com](https://seayniclabs.com), activate your license using either method:
+### System programs
 
-**Option 1: Environment variable**
+Some tools call programs that Python cannot install for you. Lathe starts without them. The `lathe_modules` tool lists what is missing and the command for your platform.
 
-```bash
-export LATHE_LICENSE_KEY="SL-XXXX-XXXX"
+| Program | Used by | macOS | Debian / Ubuntu |
+|---|---|---|---|
+| ffmpeg (includes ffprobe) | `media` | `brew install ffmpeg` | `apt install ffmpeg` |
+| tesseract | `ocr`, and `pdf_extract_text` on scanned pages | `brew install tesseract` | `apt install tesseract-ocr` |
+| ghostscript | `pdf_to_images` | `brew install ghostscript` | `apt install ghostscript` |
+
+## Settings
+
+Set these as environment variables in your MCP client's config, or in a config file. Lathe starts without any of them.
+
+| Variable | Module | What it is |
+|---|---|---|
+| `LATHE_WORKING_DIR` | core | The folder Lathe reads from and writes to. Default: the folder the server starts in. |
+| `LATHE_MAX_FILE_MB` | core | Largest input file, in MB. Default 500. |
+| `LATHE_OCR_LANG` | ocr | Tesseract language code(s), e.g. `eng` or `eng+fra`. Default `eng`. |
+| `LATHE_<MODULE>_ENABLED` | any | `false` turns a module off, e.g. `LATHE_MEDIA_ENABLED=false`. Default `true` for all four modules. |
+
+**Config file (optional).** Lathe also reads `~/.config/lathe/config.toml`, or the file named by `LATHE_CONFIG`. Environment variables win over the file.
+
+```toml
+[core]
+working_dir = "/Users/you/Pictures"
+
+[ocr]
+lang = "eng"
+
+[media]
+enabled = false
 ```
 
-**Option 2: License file**
+## Add it to your MCP client
 
-Place your license at `~/.seayniclabs/license.json`:
+Every client below runs Lathe as a local process over stdio. Put the `env` values only where you need them.
 
-```json
-{
-  "key": "SL-XXXX-XXXX",
-  "product": "lathe-mcp",
-  "email": "you@example.com",
-  "issued": "2026-01-01"
-}
-```
-
-The `health` tool reports your current tier (`free` or `licensed`) and available tool count.
-
-### System Dependencies
-
-Some tools require external binaries. Install only what you need:
-
-| Dependency | Required For | Install |
-|------------|-------------|---------|
-| ffmpeg | Audio/video tools | `brew install ffmpeg` / `apt install ffmpeg` |
-| tesseract | OCR tools | `brew install tesseract` / `apt install tesseract-ocr` |
-| ghostscript | `pdf_to_images` | `brew install ghostscript` / `apt install ghostscript` |
-
-The `health` tool reports which dependencies are available at runtime.
-
----
-
-## Usage
-
-Run the server directly:
-
-```bash
-lathe
-```
-
-Or via the MCP CLI:
-
-```bash
-mcp run lathe
-```
-
-### Claude Code
-
-```bash
-claude mcp add lathe -- /path/to/venv/bin/lathe
-```
-
-### Claude Desktop
-
-Add to your Claude Desktop config (`claude_desktop_config.json`):
+**Claude Desktop**: `claude_desktop_config.json` (Settings, Developer, Edit Config)
 
 ```json
 {
   "mcpServers": {
     "lathe": {
-      "command": "/path/to/venv/bin/lathe",
-      "env": {
-        "LATHE_WORKING_DIR": "/path/to/allowed/directory"
-      }
+      "command": "uvx",
+      "args": ["--from", "lathe-mcp[pdf,ocr]", "lathe"],
+      "env": { "LATHE_WORKING_DIR": "/path/to/your/files" }
     }
   }
 }
 ```
 
----
-
-## Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `LATHE_WORKING_DIR` | Root directory for all file operations | Current working directory |
-
-All input and output paths are resolved relative to and constrained within `LATHE_WORKING_DIR`.
-
----
-
-## Security
-
-- **Sandboxed file access** — all paths validated against `LATHE_WORKING_DIR`
-- **Path traversal protection** — `../` and absolute paths outside the sandbox are rejected
-- **Symlink escape detection** — symlinks resolving outside the working directory are blocked
-- **Decompression bomb guard** — Pillow's built-in protections are active
-- **File size limits** — 500 MB maximum per input file
-
----
-
-## Development
+**Claude Code**
 
 ```bash
-git clone https://github.com/seayniclabs/lathe.git
-cd lathe
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[test,full]"
-python -m pytest tests/ -q
+claude mcp add lathe -e LATHE_WORKING_DIR=/path/to/your/files -- uvx --from "lathe-mcp[pdf,ocr]" lathe
 ```
 
----
+**Cursor**: `~/.cursor/mcp.json`, or `.cursor/mcp.json` in a project
 
-## Using with a Gateway
+```json
+{
+  "mcpServers": {
+    "lathe": {
+      "command": "uvx",
+      "args": ["--from", "lathe-mcp[pdf,ocr]", "lathe"],
+      "env": { "LATHE_WORKING_DIR": "/path/to/your/files" }
+    }
+  }
+}
+```
 
-If you're running multiple MCP servers, route them through a gateway like [`tbxark/mcp-proxy`](https://github.com/tbxark/mcp-proxy) to manage all child processes from a single persistent service. The proxy handles process lifecycle, centralized config, and crash recovery — each server still gets its own SSE endpoint but you manage everything from one config file instead of scattered Claude Code entries.
+**VS Code**: `.vscode/mcp.json` (note `"servers"`, not `"mcpServers"`)
 
-For a full walkthrough of how this works in practice, see [The Hidden Cost of a Loaded MCP Stack](https://REDACTED.com/blog/mcp-gateway-lazy-loading) on REDACTED.com.
+```json
+{
+  "servers": {
+    "lathe": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "lathe-mcp[pdf,ocr]", "lathe"],
+      "env": { "LATHE_WORKING_DIR": "/path/to/your/files" }
+    }
+  }
+}
+```
+
+**Sonique, Hermes, OpenClaw, and other clients**: any client that launches a stdio MCP server. Command `uvx`, arguments `["--from", "lathe-mcp[pdf,ocr]", "lathe"]`, plus the `env` values above.
+
+**Over HTTP.** For clients that connect to a URL instead of starting a process:
+
+```bash
+lathe --transport http --port 8765
+```
+
+It serves streamable HTTP at `http://127.0.0.1:8765/mcp`. It listens only on your own machine by default. Put authentication in front of it before exposing it anywhere else.
+
+## Tools
+
+| Tool | What it does |
+|---|---|
+| `health` | Server version, working folder, and whether each external program is installed |
+| `lathe_modules` | Which modules are on, what is missing (with the install command), and what each tool needs. Call this first. |
+| `image_info` | Width, height, format, mode, size, and EXIF tags |
+| `image_resize` | Resize by width, height or percentage, keeping the aspect ratio |
+| `image_convert` | Convert to png, jpeg, webp, avif or bmp |
+| `image_optimize` | Shrink for web delivery; metadata stripped unless `strip_metadata=false` |
+| `image_crop` | Crop a rectangle |
+| `image_thumbnail` | Fit inside a square |
+| `pdf_info` | Page count, size, encryption, title, author |
+| `pdf_extract_text` | Text of all or some pages; OCR for pages without a text layer; long text in parts |
+| `pdf_merge` | Merge PDFs in order |
+| `pdf_to_images` | Render pages to PNG or JPEG at a chosen DPI |
+| `audio_info` | Duration, format, bitrate, sample rate, channels |
+| `audio_convert` | Convert to mp3, wav, flac, aac or ogg |
+| `video_info` | Duration, resolution, codec, frame rate, audio tracks |
+| `video_thumbnail` | Save one frame at a time in seconds |
+| `ocr_image` | Text from an image; long text in parts |
+
+Every tool returns structured data with a published schema. Long text comes in parts: pass `next_offset` back as `offset`. Errors always read `lathe.<module>.<code>: <message> Fix: <hint>`.
+
+## Files and safety
+
+- **Working folder.** Relative paths resolve against `LATHE_WORKING_DIR`. Inputs and outputs must stay inside it. Symlinks that point outside are refused.
+- **Nothing is overwritten by accident.** An output that already exists is refused unless the call passes `overwrite=true`. An output can never be the input file.
+- **Writes are atomic.** A file is written under a temporary name and moved into place, so a failure never leaves a half-written file.
+- **Local only.** Lathe runs on your machine, sends nothing anywhere and keeps no data.
+- **Size limit.** Inputs over `LATHE_MAX_FILE_MB` (500 MB by default) are refused.
+
+## Develop
+
+```bash
+uv venv -p 3.11 .venv && uv pip install -p .venv/bin/python -e '.[dev]'
+.venv/bin/pytest -q
+```
+
+The tests generate their own fixtures. Tests that need ffmpeg, tesseract or ghostscript are skipped when the program is missing.
 
 ## License
 
-Proprietary. Copyright (c) 2026 your organization LLC. All rights reserved.
-
-See [LICENSE](LICENSE) for details.
-
-<!-- mcp-name: io.github.seayniclabs/lathe -->
+MIT. Published by Seaynic Labs.
