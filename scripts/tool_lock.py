@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -24,6 +25,13 @@ sys.path.insert(0, str(ROOT / "src"))
 from lathe import __version__  # noqa: E402
 from lathe.config import Config  # noqa: E402
 from lathe.server import build_server  # noqa: E402
+
+
+def _clean(d: dict) -> dict:
+    """Same text on every Python: 3.13 strips docstring indentation, earlier versions keep it."""
+    if d.get("description"):
+        d["description"] = inspect.cleandoc(d["description"])
+    return d
 
 
 def digest(obj) -> str:
@@ -38,7 +46,7 @@ def snapshot() -> dict:
     srv = build_server(Config(env=FULL_SURFACE, file_data={}))
     tools = asyncio.run(srv.list_tools())
     prompts = asyncio.run(srv.list_prompts())
-    entries = {f"tool:{t.name}": digest(t.model_dump(exclude_none=True, mode="json")) for t in tools}
+    entries = {f"tool:{t.name}": digest(_clean(t.model_dump(exclude_none=True, mode="json"))) for t in tools}
     for p in prompts:
         text = asyncio.run(srv.get_prompt(p.name)).messages[0].content.text
         entries[f"prompt:{p.name}"] = digest({"description": p.description, "text": text})

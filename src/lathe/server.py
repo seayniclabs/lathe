@@ -20,7 +20,8 @@ INSTRUCTIONS = (
     "Skills (MCP prompts) explain how to do the job well; start with the getting-started prompt. "
     "Paths are relative to the working directory (LATHE_WORKING_DIR) and must stay inside it. "
     "No output replaces an existing file unless overwrite=true. "
-    "Tools that write files ask the person to approve first. "
+    "Writing tools create one new file and never overwrite one unless overwrite=true. "
+    "batch_process asks the person to approve a run of two or more files. "
     "Errors read 'lathe.<module>.<code>: <message> Fix: <hint>'."
 )
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)

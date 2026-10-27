@@ -1,6 +1,6 @@
 ---
 name: web-image-prep
-description: Prepare a folder of photos or screenshots for a website or post: remove GPS and camera metadata, resize, and optimize each file in one approved run. Use when the user wants to shrink, convert or clean photos before uploading them, or asks to remove location data from a picture.
+description: Prepare a folder of photos or screenshots for a website or post: remove GPS and camera metadata, resize, and optimize each file in one batch run. Use when the user wants to shrink, convert or clean photos before uploading them, or asks to remove location data from a picture.
 license: MIT
 source: https://github.com/seayniclabs/lathe
 author: Seaynic Labs
@@ -14,7 +14,7 @@ Two tools do the work: `scrub_metadata` (privacy module) for one file at a time,
 
 1. Inspect one photo first. Call `scrub_metadata` with `mode="inspect"` on it. It returns `gps_present` and the list of fields. Tell the user whether the photo has GPS data and which camera fields it holds. Do not repeat the coordinates in chat unless the user asks for them.
 2. Dry-run the folder. Call `batch_process` with `dry_run` left at its default of true, `operation="image_optimize"`, `folder` and `output_folder` inside the working folder, and `quality=80`. Read the plan: how many files are planned, how many are skipped because the output exists, and how many are rejected, with the reason for each rejected file.
-3. Run it. Call the same tool with `dry_run=false`. For more than one file, the person approves the plan in the MCP client. A declined run writes nothing.
+3. Run it. Call the same tool with `dry_run=false`. A run of two or more files asks the person once to approve the whole plan in the MCP client. A declined run writes nothing. A single file runs without a prompt.
 4. Check the output. Call `scrub_metadata` with `mode="inspect"` on one file in the output folder. `gps_present` must be false.
 5. Report the result: files done, files failed (with each reason), and the output folder.
 
@@ -27,7 +27,7 @@ Two tools do the work: `scrub_metadata` (privacy module) for one file at a time,
 | Modern format | `image_convert` with `format="webp"` | WebP output uses quality 85. |
 | Small previews | `image_thumbnail` with `size=400` | Fits inside a 400 x 400 square. |
 
-Run `image_resize` first when the photos are very large, then `image_optimize` on its output folder. Each run asks for its own approval.
+Run `image_resize` first when the photos are very large, then `image_optimize` on its output folder. Each run of two or more files asks once for its approval.
 
 ## Rules
 

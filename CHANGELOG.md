@@ -13,12 +13,12 @@ Bundle release: tools, skills and trust features in one install.
 - `pdf_split` (pages per part) and `pdf_compress` (lossless: content streams and duplicate objects) in the `pdf` module.
 - `video_trim` (stream copy, cuts on keyframes) and `video_to_gif` (up to 30 seconds, palette-optimized) in the `media` module.
 
-**Approval for new writing tools**
+**Approval**
 
-- `pdf_split`, `pdf_compress`, `video_trim`, `video_to_gif`, `batch_process` and `scrub_metadata` ask the person to approve each run through the MCP client. A client that cannot ask gets `approval_unavailable`, which names the fix.
-- Settings pre-approve a module: `LATHE_<MODULE>_PREAPPROVED=true` (for `pdf`, `media`, `batch` and `privacy`).
-- Every request, approval, decline and refusal goes to a local log at `~/.local/state/lathe/approvals.jsonl`. File contents are not logged. Set `LATHE_APPROVAL_LOG` to move it.
-- The older writing tools (`image_resize`, `image_convert`, `image_optimize`, `image_crop`, `image_thumbnail`, `pdf_merge`, `pdf_to_images`, `audio_convert`, `video_thumbnail`) are unchanged: they write new files without asking and never replace one unless `overwrite=true`.
+- Writing tools create one new file per call and never overwrite an existing file unless `overwrite=true`. None of them asks for approval.
+- `batch_process` asks the person once to approve a run of two or more files. The prompt lists the output folder, the overwrite flag, the file count and up to ten file names, each quoted and cleaned. `LATHE_BATCH_PREAPPROVED=true` skips the prompt. A client that cannot show prompts gets `approval_unavailable`, which names the fix.
+- Every batch request, approval, decline and refusal goes to a local log at `~/.local/state/lathe/approvals.jsonl`. File contents and file names are not logged. Set `LATHE_APPROVAL_LOG` to move it.
+- Output folders and output names that are symbolic links are refused, and every output must resolve inside the working folder.
 
 **Skills**
 

@@ -13,13 +13,11 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Literal
 
-from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
 
 from ..errors import LatheError
-from ..gate import approve
-from ..paths import atomic_write, resolve_dir
-from . import (GHOSTSCRIPT, PREAPPROVED, PYPDF, PYTESSERACT, TESSERACT, Module, Setting, ToolSpec, READ, WRITE,
+from ..paths import atomic_write, refuse_link, resolve_dir
+from . import (GHOSTSCRIPT, PYPDF, PYTESSERACT, TESSERACT, Module, Setting, ToolSpec, READ, WRITE,
                parse_pages, relpath, window)
 
 OCR_PAGE_LIMIT = 50
@@ -68,7 +66,6 @@ class PdfSplit(BaseModel):
     count: int
     total_pages: int
     pages_per_file: int
-    approved_by: str | None = None
 
 
 class PdfCompress(BaseModel):
@@ -77,7 +74,6 @@ class PdfCompress(BaseModel):
     original_bytes: int
     savings_percent: float = Field(description="Negative when the copy is larger than the input.")
     pages: int
-    approved_by: str | None = None
 
 
 def _reader(path: Path, allow_encrypted: bool = False):
@@ -214,18 +210,18 @@ _TOOLS = (
              requires=(PYPDF,), annotations=WRITE),
     ToolSpec("pdf_to_images", "Render PDF pages to PNG or JPEG files in a folder, at a chosen DPI. Needs ghostscript.",
              requires=(PYPDF, GHOSTSCRIPT), annotations=WRITE),
-    ToolSpec("pdf_split", "Split a PDF into parts of N pages each, written as new PDFs in a folder. Asks the person to "
-             "approve the run unless the pdf module is pre-approved.", requires=(PYPDF,), annotations=WRITE, gated=True),
+    ToolSpec("pdf_split", "Split a PDF into parts of N pages each. Writes new PDFs into a folder and never overwrites "
+             "one unless overwrite=true.", requires=(PYPDF,), annotations=WRITE),
     ToolSpec("pdf_compress", "Write a smaller copy of a PDF. Lossless: it recompresses content streams and removes "
-             "duplicate objects; images are not re-encoded. Asks the person to approve the run unless pre-approved.",
-             requires=(PYPDF,), annotations=WRITE, gated=True),
+             "duplicate objects; images are not re-encoded. Writes one new file; never overwrites unless overwrite=true.",
+             requires=(PYPDF,), annotations=WRITE),
 )
 
 
 class PdfModule(Module):
     name = "pdf"
     summary = "PDF files: info, text extraction (with OCR fallback), merge, render pages, split, compress. Needs the pdf extra."
-    settings: tuple[Setting, ...] = (PREAPPROVED,)
+    settings: tuple[Setting, ...] = ()
     tools = _TOOLS
 
     def register(self, mcp, config) -> None:
@@ -297,15 +293,17 @@ class PdfModule(Module):
             reader = _reader(src)
             total = len(reader.pages)
             idx = parse_pages(pages, total) if pages else list(range(total))
+            refuse_link(output_dir, self.config.working_dir())
             dest = resolve_dir(output_dir, self.config.working_dir())
             return PdfImages(**op_pdf_to_images(src, dest, idx, format, dpi, overwrite))
 
         @tool(mcp, "pdf_split")
-        async def pdf_split(ctx: Context, input_path: str, output_dir: str,
+        def pdf_split(input_path: str, output_dir: str,
                             pages_per_file: Annotated[int, Field(ge=1, le=10_000)] = 1,
                             overwrite: bool = False) -> PdfSplit:
             src = self.input_file(input_path)
             total = len(_reader(src).pages)
+            refuse_link(output_dir, self.config.working_dir())
             dest = resolve_dir(output_dir, self.config.working_dir())
             if dest.exists() and not dest.is_dir():
                 raise LatheError("core", "not_a_file", f"{output_dir!r} is a file, not a folder.", "give a folder name.")
@@ -313,19 +311,10 @@ class PdfModule(Module):
             if parts > SPLIT_MAX_PARTS:
                 raise LatheError("pdf", "bad_input", f"that split would write {parts} files; the limit is {SPLIT_MAX_PARTS}.",
                                  "use a larger pages_per_file.")
-            summary = (f"Split {src.name} ({total} pages) into {parts} PDF file(s) of up to {pages_per_file} "
-                       f"page(s) each, in {relpath(dest, self.config.working_dir())}?")
-            approved = await approve(ctx, self.config, self.name, "pdf_split", summary,
-                                     {"input": src.name, "pages": total, "parts": parts,
-                                      "output_dir": relpath(dest, self.config.working_dir())})
-            return PdfSplit(**op_split(src, dest, pages_per_file, overwrite), approved_by=approved)
+            return PdfSplit(**op_split(src, dest, pages_per_file, overwrite))
 
         @tool(mcp, "pdf_compress")
-        async def pdf_compress(ctx: Context, input_path: str, output_path: str, overwrite: bool = False) -> PdfCompress:
+        def pdf_compress(input_path: str, output_path: str, overwrite: bool = False) -> PdfCompress:
             src = self.input_file(input_path)
             out = self.output_file(output_path, overwrite, inputs=[src])
-            _reader(src)  # refuse encrypted or unreadable files before asking
-            summary = f"Write a lossless compressed copy of {src.name} as {relpath(out, self.config.working_dir())}?"
-            approved = await approve(ctx, self.config, self.name, "pdf_compress", summary,
-                                     {"input": src.name, "output": relpath(out, self.config.working_dir())})
-            return PdfCompress(**op_compress(src, out), approved_by=approved)
+            return PdfCompress(**op_compress(src, out))

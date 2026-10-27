@@ -1,9 +1,10 @@
 """Local approval log: one JSON line per approval asked, granted, declined or refused.
 
 Written to $LATHE_APPROVAL_LOG, or $XDG_STATE_HOME/lathe/approvals.jsonl
-(~/.local/state/lathe/approvals.jsonl). It never leaves the machine. File contents
-are never logged. Only what a person approves is: the operation, the folders and
-the number of files, plus the file names of a single-file run.
+(~/.local/state/lathe/approvals.jsonl). It never leaves the machine. It records only
+batch_process approvals: the operation, the folders, the pattern and the number of
+files. File contents and file names are never logged. Single-file writes do not ask,
+so they do not appear here.
 """
 
 from __future__ import annotations

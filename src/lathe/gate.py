@@ -1,8 +1,9 @@
 """The approval gate for tools that write files.
 
-Gauge's pattern. Each run is approved in one of three ways, in this order:
+Gauge's pattern. Only batch_process uses this gate, and only for a run of two or more
+files. The run is approved in one of three ways, in this order:
 
-1. The module is pre-approved in settings (``LATHE_<MODULE>_PREAPPROVED=true``).
+1. The batch module is pre-approved in settings (``LATHE_BATCH_PREAPPROVED=true``).
 2. The person is asked through the MCP client (elicitation) and says yes.
 3. The client cannot ask, so the run is refused with ``approval_unavailable``.
 
@@ -38,8 +39,8 @@ async def approve(ctx, config, module: str, tool: str, summary: str, details: di
     if not can_ask(ctx):
         approvals.record(config.env, tool, "refused", None, details)
         raise LatheError(module, "approval_unavailable",
-                         "this MCP client cannot ask you to approve writing files, and the module is not pre-approved.",
-                         f"set LATHE_{module.upper()}_PREAPPROVED=true to let Lathe write without asking, "
+                         "this MCP client cannot ask you to approve this run, and the module is not pre-approved.",
+                         f"set LATHE_{module.upper()}_PREAPPROVED=true to let Lathe run it without asking, "
                          "or use a client that supports approval prompts.")
     approvals.record(config.env, tool, "requested", None, details)
     answer = await ctx.elicit(summary, Approval)

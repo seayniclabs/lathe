@@ -51,9 +51,11 @@ Set `LATHE_WORKING_DIR` to the folder that holds the user's files. Every input a
 
 ## Approvals
 
-Tools that write files ask the person to approve the run. Claude Code and other clients that support approval prompts show the prompt. If a client cannot show one, the tool returns `approval_unavailable` and names the setting that pre-approves the module, `LATHE_<MODULE>_PREAPPROVED=true`. Explain that setting and its effect to the user. Do not set it yourself.
+Only `batch_process` asks the person to approve, and only for a run of two or more files. The MCP client shows the plan once. Claude Code and other clients that support approval prompts show the prompt. If a client cannot show one, the tool returns `approval_unavailable` and names the setting, `LATHE_BATCH_PREAPPROVED=true`. Explain that setting and its effect to the user. Do not set it yourself.
 
-Every request, approval and refusal goes to a local log at `~/.local/state/lathe/approvals.jsonl`. File contents are not logged. Set `LATHE_APPROVAL_LOG` to move the log.
+Every other writing tool creates one new file per call and never overwrites one unless the call passes `overwrite=true`. It does not ask.
+
+Every batch request, approval and refusal goes to a local log at `~/.local/state/lathe/approvals.jsonl`. File contents and file names are not logged. Set `LATHE_APPROVAL_LOG` to move the log.
 
 ## First checks
 

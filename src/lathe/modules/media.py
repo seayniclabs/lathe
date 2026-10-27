@@ -8,13 +8,11 @@ import subprocess
 from pathlib import Path
 from typing import Annotated, Literal
 
-from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
 
 from ..errors import LatheError
-from ..gate import approve
 from ..paths import atomic_write
-from . import FFMPEG, FFPROBE, PREAPPROVED, Module, Setting, ToolSpec, READ, WRITE, relpath
+from . import FFMPEG, FFPROBE, Module, Setting, ToolSpec, READ, WRITE
 
 AUDIO_CODEC = {"mp3": "libmp3lame", "wav": "pcm_s16le", "flac": "flac", "aac": "aac", "ogg": "libvorbis"}
 AUDIO_EXT = {"mp3": {".mp3"}, "wav": {".wav"}, "flac": {".flac"}, "aac": {".aac", ".m4a"}, "ogg": {".ogg", ".oga"}}
@@ -72,7 +70,6 @@ class VideoTrim(BaseModel):
     end_seconds: float | None = Field(description="None when the trim runs to the end of the file.")
     source_duration_seconds: float
     note: str = "Stream copy: cuts land on the nearest keyframe, so the start can be a little early."
-    approved_by: str | None = None
 
 
 class VideoGif(BaseModel):
@@ -82,7 +79,6 @@ class VideoGif(BaseModel):
     duration_seconds: float
     width: int
     fps: int
-    approved_by: str | None = None
 
 
 _PLAYLIST_MARKERS = (b"#EXTM3U", b"ffconcat", b"[playlist]", b"<?xml", b"<smil")
@@ -185,19 +181,19 @@ _TOOLS = (
              requires=(FFPROBE,)),
     ToolSpec("video_thumbnail", "Save one frame of a video as a PNG or JPEG, at a time in seconds.",
              requires=(FFMPEG,), annotations=WRITE),
-    ToolSpec("video_trim", "Cut a section out of a video (stream copy, so it is fast and lossless; cuts land on "
-             "keyframes). Asks the person to approve the run unless the media module is pre-approved.",
-             requires=(FFMPEG, FFPROBE), annotations=WRITE, gated=True),
+    ToolSpec("video_trim", "Cut a section out of a video into a new file (stream copy, so it is fast and lossless; "
+             "cuts land on keyframes). Never overwrites unless overwrite=true.",
+             requires=(FFMPEG, FFPROBE), annotations=WRITE),
     ToolSpec("video_to_gif", "Make an animated GIF from part of a video (up to 30 seconds, palette-optimized). "
-             "Asks the person to approve the run unless the media module is pre-approved.",
-             requires=(FFMPEG,), annotations=WRITE, gated=True),
+             "Writes one new file; never overwrites unless overwrite=true.",
+             requires=(FFMPEG,), annotations=WRITE),
 )
 
 
 class MediaModule(Module):
     name = "media"
     summary = "Audio and video files: info, audio conversion, a frame, trim, GIF. Needs ffmpeg and ffprobe."
-    settings: tuple[Setting, ...] = (PREAPPROVED,)
+    settings: tuple[Setting, ...] = ()
     tools = _TOOLS
 
     def register(self, mcp, config) -> None:
@@ -268,7 +264,7 @@ class MediaModule(Module):
             return VideoFrame(output_path=str(out), output_bytes=out.stat().st_size, timestamp_seconds=timestamp)
 
         @tool(mcp, "video_trim")
-        async def video_trim(ctx: Context, input_path: str, output_path: str,
+        def video_trim(input_path: str, output_path: str,
                              start: Annotated[float, Field(ge=0)] = 0.0,
                              end: Annotated[float | None, Field(ge=0)] = None, overwrite: bool = False) -> VideoTrim:
             src = self.input_file(input_path)
@@ -276,15 +272,10 @@ class MediaModule(Module):
             if end is not None and end <= start:
                 raise LatheError("media", "bad_input", f"end {end}s must be after start {start}s.",
                                  "set end to a time later than start, or leave it out to run to the end.")
-            root = self.config.working_dir()
-            until = f"{end}s" if end is not None else "the end"
-            summary = f"Cut {src.name} from {start}s to {until} into {relpath(out, root)}?"
-            approved = await approve(ctx, self.config, self.name, "video_trim", summary,
-                                     {"input": src.name, "output": relpath(out, root), "start": start, "end": end})
-            return VideoTrim(**op_video_trim(src, out, start, end), approved_by=approved)
+            return VideoTrim(**op_video_trim(src, out, start, end))
 
         @tool(mcp, "video_to_gif")
-        async def video_to_gif(ctx: Context, input_path: str, output_path: str,
+        def video_to_gif(input_path: str, output_path: str,
                                start: Annotated[float, Field(ge=0)] = 0.0,
                                duration: Annotated[float, Field(gt=0, le=GIF_MAX_SECONDS)] = 5.0,
                                width: Annotated[int, Field(ge=16, le=1280)] = 480,
@@ -295,10 +286,4 @@ class MediaModule(Module):
             if out.suffix.lower() != ".gif":
                 raise LatheError("media", "bad_input", f"output extension {out.suffix!r} is not .gif.",
                                  "name the output with .gif.")
-            root = self.config.working_dir()
-            summary = (f"Make a {duration}s GIF from {src.name} starting at {start}s, {width}px wide, "
-                       f"{fps} fps, into {relpath(out, root)}?")
-            approved = await approve(ctx, self.config, self.name, "video_to_gif", summary,
-                                     {"input": src.name, "output": relpath(out, root), "start": start,
-                                      "duration": duration})
-            return VideoGif(**op_video_to_gif(src, out, start, duration, width, fps), approved_by=approved)
+            return VideoGif(**op_video_to_gif(src, out, start, duration, width, fps))

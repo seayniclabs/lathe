@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import make_pdf
+from conftest import make_pdf, make_png
 from helpers import call, call_with_client, server
 from lathe.config import Config
 from lathe.server import INSTRUCTIONS, build_server
@@ -20,31 +20,54 @@ def read_log(path):
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
+BATCH = {"LATHE_BATCH_ENABLED": "true"}
+
+
+def two_pngs(box):
+    folder = box / "pics"
+    folder.mkdir()
+    for n in ("a.png", "b.png"):
+        make_png(folder / n)
+
+
+def batch_args(**kw):
+    args = {"folder": "pics", "operation": "image_thumbnail", "output_folder": "thumbs", "dry_run": False}
+    args.update(kw)
+    return args
+
+
 def test_approval_log_records_request_and_grant_without_contents(box, tmp_path):
     log = tmp_path / "approvals.jsonl"
-    make_pdf(box / "secret.pdf", pages=2, text="TOP SECRET BODY TEXT")
-    env = {"LATHE_APPROVAL_LOG": str(log)}
-    call_with_client(server(box, **env), "pdf_split", {"input_path": "secret.pdf", "output_dir": "parts"}, True)
+    two_pngs(box)
+    call_with_client(server(box, LATHE_APPROVAL_LOG=str(log), **BATCH), "batch_process", batch_args(), True)
     rows = read_log(log)
     assert [r["decision"] for r in rows] == ["requested", "approved"]
-    assert rows[1]["approved_by"] == "person"
-    assert "TOP SECRET" not in log.read_text()
+    assert rows[1]["approved_by"] == "person" and rows[1]["files"] == 2
+    # Only operation, folders, pattern and counts: never file contents, and no file names.
+    assert set(rows[0]) == {"ts", "tool", "decision", "approved_by", "operation", "folder", "output_folder", "pattern", "files"}
+    assert "PNG" not in log.read_text() and "a.png" not in log.read_text()
 
 
 def test_approval_log_records_refusal(box, tmp_path):
     log = tmp_path / "approvals.jsonl"
-    make_pdf(box / "doc.pdf", pages=1)
+    two_pngs(box)
     with pytest.raises(Exception):
-        call(server(box, LATHE_APPROVAL_LOG=str(log)), "pdf_compress", input_path="doc.pdf", output_path="s.pdf")
+        call(server(box, LATHE_APPROVAL_LOG=str(log), **BATCH), "batch_process", **batch_args())
     assert [r["decision"] for r in read_log(log)] == ["refused"]
 
 
 def test_approval_log_records_decline(box, tmp_path):
     log = tmp_path / "approvals.jsonl"
-    make_pdf(box / "doc.pdf", pages=1)
-    call_with_client(server(box, LATHE_APPROVAL_LOG=str(log)), "pdf_compress",
-                     {"input_path": "doc.pdf", "output_path": "s.pdf"}, None)
+    two_pngs(box)
+    call_with_client(server(box, LATHE_APPROVAL_LOG=str(log), **BATCH), "batch_process", batch_args(), None)
     assert [r["decision"] for r in read_log(log)] == ["requested", "declined"]
+
+
+def test_single_file_writes_are_not_logged_as_approvals(box, tmp_path):
+    log = tmp_path / "approvals.jsonl"
+    make_pdf(box / "doc.pdf", pages=2)
+    call(server(box, LATHE_APPROVAL_LOG=str(log)), "pdf_compress", input_path="doc.pdf", output_path="small.pdf")
+    assert read_log(log) == []
 
 
 def test_doctor_exits_1_and_names_fixes_when_pieces_are_missing(tmp_path):

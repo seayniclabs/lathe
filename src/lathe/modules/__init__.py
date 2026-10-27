@@ -10,9 +10,10 @@ A module whose Python extra or system binary is missing still starts and still
 lists its tools. Calling one of those tools returns ``lathe.<module>.unavailable``
 with the install command for the missing piece.
 
-Tools that write files ask for approval first (see ``lathe.gate``). Every module
-that has such a tool carries the ``preapproved`` setting, so a person can allow
-writes in settings instead of answering a prompt each time.
+Writing tools create one new file per call and never overwrite an existing file
+unless the call passes overwrite=true. The one tool that asks for approval is
+``batch_process`` when a run covers two or more files (see ``lathe.gate``); its
+module carries the ``preapproved`` setting.
 """
 
 from __future__ import annotations
@@ -84,8 +85,8 @@ class Setting:
         return env_name(module, self.key)
 
 
-PREAPPROVED = Setting("preapproved", "true lets Lathe write files without asking. Default false: the person "
-                      "is asked to approve each run.", default="false")
+PREAPPROVED = Setting("preapproved", "true lets Lathe run a batch of two or more files without asking. Default "
+                      "false: the person is asked to approve the plan once.", default="false")
 
 
 @dataclass(frozen=True)
@@ -94,7 +95,7 @@ class ToolSpec:
     description: str
     requires: tuple[Requirement, ...] = ()
     annotations: ToolAnnotations = field(default_factory=lambda: READ)
-    gated: bool = False  # True: the run asks the person to approve it (see lathe.gate)
+    gated: bool = False  # True: a multi-file run asks the person to approve the plan (see lathe.gate)
 
 
 def unavailable(module: str, missing: list[Requirement]) -> LatheError:

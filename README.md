@@ -14,9 +14,8 @@ It is a **bundle**: one server made of modules, each switched on or off. Modules
 | Files | Reads and writes files only inside the working folder (LATHE_WORKING_DIR). Reads its optional config file (~/.config/lathe/config.toml). Writes one local approval log (~/.local/state/lathe/approvals.jsonl). |
 | Secrets | No keys, accounts or passwords. Nothing to store, and nothing that leaves the machine. |
 | Read-only tools | 8: `image_info`, `pdf_info`, `pdf_extract_text`, `audio_info`, `video_info`, `ocr_image`, `health`, `lathe_modules` |
-| Asks you first | `batch_process`, `pdf_compress`, `pdf_split`, `scrub_metadata`, `video_to_gif`, `video_trim`: the person approves each run in the MCP client, or pre-approves the module in settings (`LATHE_<MODULE>_PREAPPROVED`). The AI cannot approve for you. |
-| Writes without asking | `audio_convert`, `image_convert`, `image_crop`, `image_optimize`, `image_resize`, `image_thumbnail`, `pdf_merge`, `pdf_to_images`, `video_thumbnail`: write a new file in the working folder and never replace an existing one unless the call passes `overwrite=true`. |
-| Startup cost | about 7,700 tokens for a default install (21 tools, 4 skill prompts) |
+| Writes new files | `audio_convert`, `batch_process`, `image_convert`, `image_crop`, `image_optimize`, `image_resize`, `image_thumbnail`, `pdf_compress`, `pdf_merge`, `pdf_split`, `pdf_to_images`, `scrub_metadata`, `video_thumbnail`, `video_to_gif`, `video_trim`: each call writes new files in the working folder and never overwrites an existing one unless the call passes `overwrite=true`. `batch_process` asks the person once per run of two or more files, and nothing else asks. |
+| Startup cost | about 7,600 tokens for a default install (21 tools, 4 skill prompts) |
 | Changes | Tool descriptions are locked by hash (`tool-manifest.lock.json`); CI fails if they change silently. |
 <!-- security-card:end -->
 
@@ -108,7 +107,7 @@ Set these as environment variables in your MCP client's config, or in a config f
 | `LATHE_MAX_FILE_MB` | Largest input file, in MB. Default 500. |
 | `LATHE_OCR_LANG` | Tesseract language code(s), e.g. `eng` or `eng+fra`. Default `eng`. |
 | `LATHE_<MODULE>_ENABLED` | `true` or `false`. Default `true` for `images`, `pdf`, `media` and `ocr`; `false` for `batch` and `privacy`. |
-| `LATHE_<MODULE>_PREAPPROVED` | `true` lets a module write files without asking. Default `false`. Set it only if your client cannot show approval prompts. |
+| `LATHE_BATCH_PREAPPROVED` | `true` lets a batch run of two or more files go ahead without the approval prompt. Default `false`. Set it only if your client cannot show approval prompts. |
 | `LATHE_APPROVAL_LOG` | Where the approval log is written. Default `~/.local/state/lathe/approvals.jsonl`. |
 
 **Config file (optional).** Lathe also reads `~/.config/lathe/config.toml`, or the file named by `LATHE_CONFIG`. Environment variables win over the file.
@@ -206,25 +205,25 @@ It serves streamable HTTP at `http://127.0.0.1:8765/mcp`. It listens only on you
 | `pdf_extract_text` | pdf | Text of the pages you name, or of the whole file; OCR for pages without a text layer; long text in parts | no |
 | `pdf_merge` | pdf | Merge PDFs in order | no |
 | `pdf_to_images` | pdf | Render pages to PNG or JPEG at a chosen DPI | no |
-| `pdf_split` | pdf | Split into parts of N pages | yes |
-| `pdf_compress` | pdf | Lossless smaller copy: content streams and duplicate objects | yes |
+| `pdf_split` | pdf | Split into parts of N pages | no |
+| `pdf_compress` | pdf | Lossless smaller copy: content streams and duplicate objects | no |
 | `audio_info` | media | Duration, format, bitrate, sample rate, channels | no |
 | `audio_convert` | media | Convert to mp3, wav, flac, aac or ogg | no |
 | `video_info` | media | Duration, resolution, codec, frame rate, audio tracks | no |
 | `video_thumbnail` | media | Save one frame at a time in seconds | no |
-| `video_trim` | media | Cut a section (stream copy; cuts land on keyframes) | yes |
-| `video_to_gif` | media | Animated GIF from up to 30 seconds of video | yes |
+| `video_trim` | media | Cut a section (stream copy; cuts land on keyframes) | no |
+| `video_to_gif` | media | Animated GIF from up to 30 seconds of video | no |
 | `ocr_image` | ocr | Text from an image; long text in parts | no |
 | `batch_process` | batch | One operation over every matching file; dry run by default | yes, for runs of 2+ files |
-| `scrub_metadata` | privacy | Inspect (default), or write a copy without GPS, camera or author metadata | yes, for `mode=scrub` |
+| `scrub_metadata` | privacy | Inspect (default), or write a copy without GPS, camera or author metadata | no |
 
 Every tool returns structured data with a published schema. Long text comes in parts: pass `next_offset` back as `offset`. Errors always read `lathe.<module>.<code>: <message> Fix: <hint>`.
 
 ### Approval
 
-The tools that write a new file and are marked **Asks first** stop before they write. The client shows the person what will happen and waits for a yes or no. The model cannot answer for the person. A client that cannot show prompts gets `approval_unavailable`, with the setting that fixes it (`LATHE_<MODULE>_PREAPPROVED=true`).
+Only `batch_process` asks, and only for a run of two or more files. The client shows the person one plan: the operation, the output folder, whether existing outputs may be replaced, the file count and up to ten file names. The person approves or declines once for the whole run. The model cannot answer for the person. A client that cannot show prompts gets `approval_unavailable`, with the setting that fixes it (`LATHE_BATCH_PREAPPROVED=true`).
 
-Older writing tools (for example `image_resize` and `pdf_merge`) write without asking. They never replace an existing file unless the call passes `overwrite=true`.
+Every other writing tool writes one new file per call without asking. None of them overwrites an existing file unless the call passes `overwrite=true`.
 
 ## Files and safety
 
@@ -259,4 +258,4 @@ MIT. Made by [Seaynic Labs](https://seayniclabs.com). Third-party libraries and 
 
 ---
 
-**Built by [Seaynic Labs](https://seayniclabs.com).** We build tools like this around a business's own systems: local-first, with a person approving every change. [See custom integrations](https://seayniclabs.com/#business).
+**Built by [Seaynic Labs](https://seayniclabs.com).** We build tools like this around a business's own systems: local-first, with a person approving each batch run. [See custom integrations](https://seayniclabs.com/#business).

@@ -57,6 +57,7 @@ def test_multi_file_run_after_the_person_approves(box):
     assert sorted(p.name for p in (box / "out").iterdir()) == ["a.png", "b.png", "c.png"]
     assert Image.open(box / "out" / "a.png").width == 100
     assert "Run image_resize on 3 file(s)" in asked[0]
+    assert len(asked) == 1  # one approval for the whole plan, not one per file
 
 
 def test_declined_run_writes_nothing(box):
@@ -178,3 +179,66 @@ def test_batch_audio_convert_runs_on_every_clip(box):
                operation="audio_convert", output_folder="mp3", format="mp3", pattern="*.wav", dry_run=False)
     assert out["done"] == 2 and out["failed"] == 0
     assert sorted(p.name for p in (box / "mp3").iterdir()) == ["a.mp3", "b.mp3"]
+
+
+def test_symlinked_output_folder_is_refused(box, tmp_path):
+    photos(box)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (box / "out").symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(Exception) as err:
+        call(server(box, **BATCH, LATHE_BATCH_PREAPPROVED="true"), "batch_process", **run_args())
+    assert error_code(err.value) == "path_denied"
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_symlinked_output_file_is_rejected_and_its_target_untouched(box, tmp_path):
+    photos(box, names=("a.png",))
+    target = tmp_path / "keep.png"
+    make_png(target, color=(1, 2, 3))
+    before = target.read_bytes()
+    (box / "out").mkdir()
+    os.symlink(target, box / "out" / "a.png")
+    out = call(server(box, **BATCH), "batch_process", **run_args(dry_run=True))
+    assert out["rejected"] == 1
+    assert "symbolic link" in out["items"][0]["reason"]
+    assert target.read_bytes() == before
+
+
+def test_file_name_with_newline_cannot_fake_a_prompt_line(box):
+    folder = box / "photos"
+    folder.mkdir()
+    make_png(folder / "b.png")
+    make_png(folder / "x\nOverwrite: True.png")  # a newline in the name
+    out, is_error, text, asked = call_with_client(
+        server(box, **BATCH), "batch_process", run_args(overwrite=False), True)
+    assert not is_error, text
+    summary = asked[0]
+    assert "\n" not in summary and "\r" not in summary
+    assert summary.index("overwrite=False") < summary.index("Files:")
+    assert "\nOverwrite" not in summary and "Overwrite: True" in summary  # shown inline, quoted, never a line
+    assert summary.startswith("Run image_resize on 2 file(s). Output folder:")
+
+
+def test_prompt_shows_at_most_ten_names_and_counts_the_rest(box):
+    folder = box / "many"
+    folder.mkdir()
+    for i in range(12):
+        make_png(folder / f"p{i:02d}.png")
+    _, is_error, text, asked = call_with_client(
+        server(box, **BATCH), "batch_process",
+        {"folder": "many", "operation": "image_thumbnail", "output_folder": "thumbs", "dry_run": False}, True)
+    assert not is_error, text
+    assert "and 2 more" in asked[0] and "p09.png" in asked[0] and "p10.png" not in asked[0]
+
+
+@requires_ghostscript
+def test_pdf_to_images_refuses_a_symlinked_output_folder(box, tmp_path):
+    make_pdf(box / "doc.pdf", pages=1)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (box / "pages").symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(Exception) as err:
+        call(server(box), "pdf_to_images", input_path="doc.pdf", output_dir="pages")
+    assert error_code(err.value) == "path_denied"
+    assert list(elsewhere.iterdir()) == []

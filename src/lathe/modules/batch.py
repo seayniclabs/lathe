@@ -1,10 +1,11 @@
 """batch_process: one operation over every matching file in a folder, in one call.
 
 A dry run (the default) returns the plan and writes nothing: which files match, where
-each output goes, and which are skipped or rejected and why. A real run of more than
-one file asks the person to approve the plan through the client, unless the batch
-module is pre-approved (``LATHE_BATCH_PREAPPROVED=true``). Inputs are never
-overwritten. An existing output is skipped unless the call passes overwrite=true.
+each output goes, and which are skipped or rejected and why. A real run of two or more
+files asks the person once to approve the whole plan, unless the batch module is
+pre-approved (``LATHE_BATCH_PREAPPROVED=true``). A run of one file does not ask.
+Inputs are never overwritten. An existing output is skipped unless the call passes
+overwrite=true. Output folders and output names that are symbolic links are refused.
 
 Note: no ``from __future__ import annotations`` here (see images.py).
 """
@@ -17,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from ..errors import LatheError
 from ..gate import approve
-from ..paths import resolve_dir, resolve_input
+from ..paths import refuse_link, resolve_dir, resolve_input
 from . import (FFMPEG, GHOSTSCRIPT, PREAPPROVED, PYPDF, Module, Requirement, Setting, ToolSpec, WRITE, relpath)
 from . import images as img
 from . import media as media_mod
@@ -28,6 +29,14 @@ REQUIRES = {"pdf_to_images": (PYPDF, GHOSTSCRIPT), "audio_convert": (FFMPEG,)}
 DEFAULT_MAX_FILES = 50
 CAP_MAX_FILES = 500
 APPROVAL_LIST = 10
+NAME_MAX = 80
+
+
+def _show(text: str) -> str:
+    """Text from the model, made safe for an approval prompt: control characters removed, quoted, shortened."""
+    clean = "".join(ch for ch in str(text) if ch.isprintable())
+    shown = repr(clean)
+    return shown if len(shown) <= NAME_MAX else shown[:NAME_MAX - 3] + "..."
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".avif", ".bmp"}
 CONVERT_EXT = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp", "AVIF": ".avif", "BMP": ".bmp"}
 AUDIO_EXT = {"mp3": ".mp3", "wav": ".wav", "flac": ".flac", "aac": ".aac", "ogg": ".ogg"}
@@ -182,6 +191,7 @@ class BatchModule(Module):
             if not src_dir.is_dir():
                 raise LatheError("batch", "not_found", f"no folder at {folder!r}.",
                                  "pass a folder inside the working directory.")
+            refuse_link(output_folder, root)
             out_dir = resolve_dir(output_folder, root)
             if out_dir == src_dir:
                 raise LatheError("batch", "same_path", "output_folder is the input folder.",
@@ -207,6 +217,15 @@ class BatchModule(Module):
                 name = _output_name(operation, src, opts)
                 out = out_dir / name
                 rel_out = relpath(out, root)
+                if out.is_symlink():
+                    plan.append({"input_path": rel_in, "output_path": rel_out, "status": "rejected",
+                                 "reason": "the output name is a symbolic link; Lathe does not write through links."})
+                    continue
+                out = out.resolve()
+                if not out.is_relative_to(root):
+                    plan.append({"input_path": rel_in, "output_path": rel_out, "status": "rejected",
+                                 "reason": "the output would resolve outside the working folder."})
+                    continue
                 if out == src:
                     plan.append({"input_path": rel_in, "output_path": rel_out, "status": "rejected",
                                  "reason": "the output would replace its input."})
@@ -239,12 +258,16 @@ class BatchModule(Module):
                                    planned=c["planned"], done=0, failed=0, skipped=c["skipped"], rejected=c["rejected"],
                                    note=note, items=[BatchItem(**i) for i in plan])
 
+            # Server-written facts first, then the file names. Anything from the model is quoted and cleaned.
             names = [p[0]["input_path"] for p in planned]
-            shown = ", ".join(names[:APPROVAL_LIST]) + (f", and {len(names) - APPROVAL_LIST} more" if len(names) > APPROVAL_LIST else "")
+            shown = ", ".join(_show(n) for n in names[:APPROVAL_LIST])
+            if len(names) > APPROVAL_LIST:
+                shown += f", and {len(names) - APPROVAL_LIST} more"
             options = ", ".join(f"{k}={v}" for k, v in opts.items() if k != "fmt" and v is not None)
-            summary = (f"Run {operation} on {len(planned)} file(s) from {folder_rel} and write them to {out_rel}"
-                       f"{' (' + options + ')' if options else ''}? Files: {shown}. "
-                       "Existing outputs are skipped unless overwrite is set.")
+            summary = (f"Run {operation} on {len(planned)} file(s). "
+                       f"Output folder: {_show(out_rel)}. overwrite={overwrite}. "
+                       f"Options: {options or 'none'}. Input folder: {_show(folder_rel)}. "
+                       f"Pattern: {_show(pattern)}. Files: {shown}.")
             approved = None
             if len(planned) > 1:
                 approved = await approve(ctx, self.config, self.name, "batch_process", summary,

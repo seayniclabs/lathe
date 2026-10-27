@@ -78,6 +78,16 @@ def atomic_write(out: Path, write: Callable[[Path], None]) -> None:
             tmp.unlink()
 
 
+def refuse_link(path: str, root: Path) -> None:
+    """Refuse a path that is itself a symbolic link. Checked before resolving, which would hide the link."""
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    if candidate.is_symlink():
+        raise LatheError("core", "path_denied", f"{path!r} is a symbolic link.",
+                         "write to a real folder inside the working directory.")
+
+
 def resolve_dir(path: str, root: Path) -> Path:
     """An output folder inside the working directory. It is created by the caller when needed."""
     resolved = _resolve(path, root)
