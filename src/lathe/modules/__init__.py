@@ -9,15 +9,21 @@ turns on something the user did not choose.
 A module whose Python extra or system binary is missing still starts and still
 lists its tools. Calling one of those tools returns ``lathe.<module>.unavailable``
 with the install command for the missing piece.
+
+Tools that write files ask for approval first (see ``lathe.gate``). Every module
+that has such a tool carries the ``preapproved`` setting, so a person can allow
+writes in settings instead of answering a prompt each time.
 """
 
 from __future__ import annotations
 
 import functools
 import importlib.util
+import inspect
 import shutil
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from mcp.server.fastmcp import FastMCP
@@ -78,18 +84,31 @@ class Setting:
         return env_name(module, self.key)
 
 
+PREAPPROVED = Setting("preapproved", "true lets Lathe write files without asking. Default false: the person "
+                      "is asked to approve each run.", default="false")
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
     description: str
     requires: tuple[Requirement, ...] = ()
     annotations: ToolAnnotations = field(default_factory=lambda: READ)
+    gated: bool = False  # True: the run asks the person to approve it (see lathe.gate)
 
 
 def unavailable(module: str, missing: list[Requirement]) -> LatheError:
     names = ", ".join(f"{r.name} ({'Python package' if r.kind == 'python' else 'system program'})" for r in missing)
     fix = " && ".join(dict.fromkeys(r.install for r in missing))
     return LatheError(module, "unavailable", f"missing {names}.", f"run: {fix}")
+
+
+def relpath(path: Path, root: Path) -> str:
+    """A path for people to read: relative to the working directory when it is inside it."""
+    try:
+        return path.relative_to(root).as_posix() or "."
+    except ValueError:
+        return str(path)
 
 
 def window(text: str, offset: int, max_chars: int) -> tuple[str, int | None]:
@@ -143,27 +162,52 @@ class Module:
         raise NotImplementedError
 
     def tool(self, mcp: FastMCP, name: str):
-        """Register a function as the named tool. Checks dependencies first and wraps other failures as lathe errors."""
+        """Register a function as the named tool. Checks dependencies first and wraps other failures as lathe errors.
+
+        Coroutine functions (the tools that ask for approval) are wrapped as coroutines.
+        """
         spec = self.spec(name)
 
+        def wrap(e: Exception) -> LatheError:
+            return LatheError(self.name, "failed", f"{type(e).__name__}: {str(e)[:300]}",
+                              "check the input file, then try again.")
+
         def decorate(fn):
-            @functools.wraps(fn)
-            def guarded(*args, **kwargs):
-                missing = [r for r in spec.requires if not r.available()]
-                if missing:
-                    raise unavailable(self.name, missing)
-                try:
-                    return fn(*args, **kwargs)
-                except LatheError:
-                    raise
-                except Exception as e:
-                    raise LatheError(self.name, "failed", f"{type(e).__name__}: {str(e)[:300]}",
-                                     "check the input file, then try again.") from e
+            if inspect.iscoroutinefunction(fn):
+                @functools.wraps(fn)
+                async def guarded(*args, **kwargs):
+                    missing = [r for r in spec.requires if not r.available()]
+                    if missing:
+                        raise unavailable(self.name, missing)
+                    try:
+                        return await fn(*args, **kwargs)
+                    except LatheError:
+                        raise
+                    except Exception as e:
+                        raise wrap(e) from e
+            else:
+                @functools.wraps(fn)
+                def guarded(*args, **kwargs):
+                    missing = [r for r in spec.requires if not r.available()]
+                    if missing:
+                        raise unavailable(self.name, missing)
+                    try:
+                        return fn(*args, **kwargs)
+                    except LatheError:
+                        raise
+                    except Exception as e:
+                        raise wrap(e) from e
 
             mcp.tool(name=spec.name, description=spec.description, annotations=spec.annotations)(guarded)
             return fn
 
         return decorate
+
+    def need(self, *reqs: Requirement) -> None:
+        """Raise the unavailable error for any of these pieces that is missing (for checks inside a tool)."""
+        missing = [r for r in reqs if not r.available()]
+        if missing:
+            raise unavailable(self.name, missing)
 
     # Shared path handling. Every tool goes through these.
     def input_file(self, path: str):
@@ -178,9 +222,11 @@ class Module:
 
 
 def all_modules() -> list[Module]:
+    from .batch import BatchModule
     from .images import ImagesModule
     from .media import MediaModule
     from .ocr import OcrModule
     from .pdf import PdfModule
+    from .privacy import PrivacyModule
 
-    return [ImagesModule(), PdfModule(), MediaModule(), OcrModule()]
+    return [ImagesModule(), PdfModule(), MediaModule(), OcrModule(), BatchModule(), PrivacyModule()]

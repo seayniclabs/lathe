@@ -7,14 +7,20 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from . import __version__
+from . import skills as skills_mod
 from .config import Config, config_path
 from .modules import Module, Requirement, all_modules
+
+PUBLISHER = "Seaynic Labs"
+HOMEPAGE = "https://github.com/seayniclabs/lathe"
 
 INSTRUCTIONS = (
     "Lathe processes files and media on this machine: images, PDFs, audio and video, and OCR. "
     "Call lathe_modules first: it lists the modules, which are on, which pieces are missing and the command to install each. "
+    "Skills (MCP prompts) explain how to do the job well; start with the getting-started prompt. "
     "Paths are relative to the working directory (LATHE_WORKING_DIR) and must stay inside it. "
     "No output replaces an existing file unless overwrite=true. "
+    "Tools that write files ask the person to approve first. "
     "Errors read 'lathe.<module>.<code>: <message> Fix: <hint>'."
 )
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
@@ -64,12 +70,21 @@ class ModuleInfo(BaseModel):
     settings: list[SettingInfo] | None = None
 
 
+class SkillInfo(BaseModel):
+    name: str
+    description: str
+    license: str
+
+
 class ModulesResult(BaseModel):
     version: str
     working_dir: str
     config_file: str
     config_error: str | None
     modules: list[ModuleInfo]
+    skills: list[SkillInfo]
+    publisher: str = PUBLISHER
+    homepage: str = HOMEPAGE
 
 
 def _missing(reqs: list[Requirement]) -> list[MissingDependency]:
@@ -86,6 +101,8 @@ def build_server(config: Config | None = None, modules: list[Module] | None = No
     for module in modules:
         if config.enabled(module.name, module.default_enabled):
             module.register(mcp, config)
+
+    loaded_skills = skills_mod.register(mcp, "lathe")
 
     @mcp.tool(annotations=READ_ONLY)
     def health() -> HealthResult:
@@ -121,9 +138,11 @@ def build_server(config: Config | None = None, modules: list[Module] | None = No
                     for s in m.settings
                 ]
             infos.append(info)
-        return ModulesResult(version=__version__, working_dir=str(config.working_dir()),
-                             config_file=str(config_path(config.env)), config_error=config.file_error,
-                             modules=infos)
+        return ModulesResult(
+            version=__version__, working_dir=str(config.working_dir()),
+            config_file=str(config_path(config.env)), config_error=config.file_error, modules=infos,
+            skills=[SkillInfo(name=s["name"], description=s["description"], license=s["license"]) for s in loaded_skills],
+        )
 
     return mcp
 
@@ -134,7 +153,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--host", default="127.0.0.1", help="HTTP only. Keep 127.0.0.1 unless you add auth in front.")
     parser.add_argument("--port", type=int, default=8765, help="HTTP only.")
     parser.add_argument("--version", action="version", version=f"lathe {__version__}")
+    parser.add_argument("--doctor", action="store_true", help="Check settings and installed programs, print fixes, and exit.")
     args = parser.parse_args(argv)
+
+    if args.doctor:
+        from .doctor import run
+        raise SystemExit(run())
 
     if args.transport == "http":
         build_server(host=args.host, port=args.port).run(transport="streamable-http")

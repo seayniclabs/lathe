@@ -1,0 +1,10 @@
+{
+  "name": "lathe",
+  "version": "0.4.0",
+  "description": "Local file and media tools for your AI assistant: images, PDFs, audio and video, OCR, batch runs and metadata removal, with skills for getting started, PDF output, fillable forms and web photo prep. By Seaynic Labs.",
+  "author": { "name": "Seaynic Labs", "url": "https://seayniclabs.com" },
+  "homepage": "https://github.com/seayniclabs/lathe",
+  "repository": "https://github.com/seayniclabs/lathe",
+  "license": "MIT",
+  "keywords": ["mcp", "images", "pdf", "audio", "video", "ocr", "metadata", "batch", "skills"]
+}

@@ -8,15 +8,18 @@ import subprocess
 from pathlib import Path
 from typing import Annotated, Literal
 
+from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
 
 from ..errors import LatheError
+from ..gate import approve
 from ..paths import atomic_write
-from . import FFMPEG, FFPROBE, Module, Setting, ToolSpec, READ, WRITE
+from . import FFMPEG, FFPROBE, PREAPPROVED, Module, Setting, ToolSpec, READ, WRITE, relpath
 
 AUDIO_CODEC = {"mp3": "libmp3lame", "wav": "pcm_s16le", "flac": "flac", "aac": "aac", "ogg": "libvorbis"}
 AUDIO_EXT = {"mp3": {".mp3"}, "wav": {".wav"}, "flac": {".flac"}, "aac": {".aac", ".m4a"}, "ogg": {".ogg", ".oga"}}
 FRAME_EXT = {".png", ".jpg", ".jpeg"}
+GIF_MAX_SECONDS = 30
 TIMEOUT_CONVERT = 600
 TIMEOUT_FRAME = 60
 TIMEOUT_PROBE = 30
@@ -62,6 +65,26 @@ class VideoInfo(BaseModel):
     audio_tracks: list[AudioTrack]
 
 
+class VideoTrim(BaseModel):
+    output_path: str
+    output_bytes: int
+    start_seconds: float
+    end_seconds: float | None = Field(description="None when the trim runs to the end of the file.")
+    source_duration_seconds: float
+    note: str = "Stream copy: cuts land on the nearest keyframe, so the start can be a little early."
+    approved_by: str | None = None
+
+
+class VideoGif(BaseModel):
+    output_path: str
+    output_bytes: int
+    start_seconds: float
+    duration_seconds: float
+    width: int
+    fps: int
+    approved_by: str | None = None
+
+
 _PLAYLIST_MARKERS = (b"#EXTM3U", b"ffconcat", b"[playlist]", b"<?xml", b"<smil")
 
 
@@ -104,20 +127,78 @@ def _number(value, cast, default):
         return default
 
 
+# --- operations on resolved paths. The tools below and batch_process both call these. ---
+
+def op_audio_convert(src: Path, out: Path, format: str) -> dict:
+    if out.suffix.lower() not in AUDIO_EXT[format]:
+        raise LatheError("media", "bad_input", f"output extension {out.suffix!r} does not match {format}.",
+                         f"name the output with one of {', '.join(sorted(AUDIO_EXT[format]))}.")
+
+    def write(tmp: Path) -> None:
+        _run(["ffmpeg", "-nostdin", "-y", "-i", str(src), "-vn", "-acodec", AUDIO_CODEC[format], str(tmp)],
+             TIMEOUT_CONVERT, "ffmpeg conversion")
+
+    atomic_write(out, write)
+    return {"output_path": str(out), "output_bytes": out.stat().st_size, "format": format}
+
+
+def op_video_trim(src: Path, out: Path, start: float, end: float | None) -> dict:
+    probe = _probe(src)
+    duration = _number((probe.get("format") or {}).get("duration"), float, 0.0)
+    if duration and start >= duration:
+        raise LatheError("media", "bad_input", f"start {start}s is at or past the end of the {duration:.1f}s file.",
+                         "pick a start time inside the file.")
+    length = None if end is None else round(end - start, 3)
+    cmd = ["ffmpeg", "-nostdin", "-y", "-ss", str(start), "-i", str(src)]
+    if length is not None:
+        cmd += ["-t", str(length)]
+    cmd += ["-c", "copy"]
+
+    def write(tmp: Path) -> None:
+        _run([*cmd, str(tmp)], TIMEOUT_CONVERT, "ffmpeg trim")
+
+    atomic_write(out, write)
+    return {"output_path": str(out), "output_bytes": out.stat().st_size, "start_seconds": start,
+            "end_seconds": end, "source_duration_seconds": duration}
+
+
+def op_video_to_gif(src: Path, out: Path, start: float, duration: float, width: int, fps: int) -> dict:
+    graph = (f"[0:v]fps={fps},scale={width}:-1:flags=lanczos,split[a][b];"
+             "[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer")
+    cmd = ["ffmpeg", "-nostdin", "-y", "-ss", str(start), "-i", str(src), "-t", str(duration),
+           "-an", "-filter_complex", graph]
+
+    def write(tmp: Path) -> None:
+        _run([*cmd, str(tmp)], TIMEOUT_CONVERT, "ffmpeg gif")
+
+    atomic_write(out, write)
+    return {"output_path": str(out), "output_bytes": out.stat().st_size, "start_seconds": start,
+            "duration_seconds": duration, "width": width, "fps": fps}
+
+
+_TOOLS = (
+    ToolSpec("audio_info", "Audio metadata: duration, format, bitrate, sample rate, channels and codec.",
+             requires=(FFPROBE,)),
+    ToolSpec("audio_convert", "Convert audio to mp3, wav, flac, aac or ogg. A video input keeps only its audio. "
+             "The output extension must match the format.", requires=(FFMPEG,), annotations=WRITE),
+    ToolSpec("video_info", "Video metadata: duration, resolution, codec, frame rate, bitrate and audio tracks.",
+             requires=(FFPROBE,)),
+    ToolSpec("video_thumbnail", "Save one frame of a video as a PNG or JPEG, at a time in seconds.",
+             requires=(FFMPEG,), annotations=WRITE),
+    ToolSpec("video_trim", "Cut a section out of a video (stream copy, so it is fast and lossless; cuts land on "
+             "keyframes). Asks the person to approve the run unless the media module is pre-approved.",
+             requires=(FFMPEG, FFPROBE), annotations=WRITE, gated=True),
+    ToolSpec("video_to_gif", "Make an animated GIF from part of a video (up to 30 seconds, palette-optimized). "
+             "Asks the person to approve the run unless the media module is pre-approved.",
+             requires=(FFMPEG,), annotations=WRITE, gated=True),
+)
+
+
 class MediaModule(Module):
     name = "media"
-    summary = "Audio and video files: info, audio conversion, a frame from a video. Needs ffmpeg and ffprobe."
-    settings: tuple[Setting, ...] = ()
-    tools = (
-        ToolSpec("audio_info", "Audio metadata: duration, format, bitrate, sample rate, channels and codec.",
-                 requires=(FFPROBE,)),
-        ToolSpec("audio_convert", "Convert audio to mp3, wav, flac, aac or ogg. A video input keeps only its audio. "
-                 "The output extension must match the format.", requires=(FFMPEG,), annotations=WRITE),
-        ToolSpec("video_info", "Video metadata: duration, resolution, codec, frame rate, bitrate and audio tracks.",
-                 requires=(FFPROBE,)),
-        ToolSpec("video_thumbnail", "Save one frame of a video as a PNG or JPEG, at a time in seconds.",
-                 requires=(FFMPEG,), annotations=WRITE),
-    )
+    summary = "Audio and video files: info, audio conversion, a frame, trim, GIF. Needs ffmpeg and ffprobe."
+    settings: tuple[Setting, ...] = (PREAPPROVED,)
+    tools = _TOOLS
 
     def register(self, mcp, config) -> None:
         self.config = config
@@ -147,16 +228,7 @@ class MediaModule(Module):
                           format: Literal["mp3", "wav", "flac", "aac", "ogg"], overwrite: bool = False) -> AudioConvert:
             src = self.input_file(input_path)
             out = self.output_file(output_path, overwrite, inputs=[src])
-            if out.suffix.lower() not in AUDIO_EXT[format]:
-                raise LatheError("media", "bad_input", f"output extension {out.suffix!r} does not match {format}.",
-                                 f"name the output with one of {', '.join(sorted(AUDIO_EXT[format]))}.")
-
-            def write(tmp: Path) -> None:
-                _run(["ffmpeg", "-nostdin", "-y", "-i", str(src), "-vn", "-acodec", AUDIO_CODEC[format], str(tmp)],
-                     TIMEOUT_CONVERT, "ffmpeg conversion")
-
-            atomic_write(out, write)
-            return AudioConvert(output_path=str(out), output_bytes=out.stat().st_size, format=format)
+            return AudioConvert(**op_audio_convert(src, out, format))
 
         @tool(mcp, "video_info")
         def video_info(input_path: str) -> VideoInfo:
@@ -194,3 +266,39 @@ class MediaModule(Module):
 
             atomic_write(out, write)
             return VideoFrame(output_path=str(out), output_bytes=out.stat().st_size, timestamp_seconds=timestamp)
+
+        @tool(mcp, "video_trim")
+        async def video_trim(ctx: Context, input_path: str, output_path: str,
+                             start: Annotated[float, Field(ge=0)] = 0.0,
+                             end: Annotated[float | None, Field(ge=0)] = None, overwrite: bool = False) -> VideoTrim:
+            src = self.input_file(input_path)
+            out = self.output_file(output_path, overwrite, inputs=[src])
+            if end is not None and end <= start:
+                raise LatheError("media", "bad_input", f"end {end}s must be after start {start}s.",
+                                 "set end to a time later than start, or leave it out to run to the end.")
+            root = self.config.working_dir()
+            until = f"{end}s" if end is not None else "the end"
+            summary = f"Cut {src.name} from {start}s to {until} into {relpath(out, root)}?"
+            approved = await approve(ctx, self.config, self.name, "video_trim", summary,
+                                     {"input": src.name, "output": relpath(out, root), "start": start, "end": end})
+            return VideoTrim(**op_video_trim(src, out, start, end), approved_by=approved)
+
+        @tool(mcp, "video_to_gif")
+        async def video_to_gif(ctx: Context, input_path: str, output_path: str,
+                               start: Annotated[float, Field(ge=0)] = 0.0,
+                               duration: Annotated[float, Field(gt=0, le=GIF_MAX_SECONDS)] = 5.0,
+                               width: Annotated[int, Field(ge=16, le=1280)] = 480,
+                               fps: Annotated[int, Field(ge=1, le=30)] = 10,
+                               overwrite: bool = False) -> VideoGif:
+            src = self.input_file(input_path)
+            out = self.output_file(output_path, overwrite, inputs=[src])
+            if out.suffix.lower() != ".gif":
+                raise LatheError("media", "bad_input", f"output extension {out.suffix!r} is not .gif.",
+                                 "name the output with .gif.")
+            root = self.config.working_dir()
+            summary = (f"Make a {duration}s GIF from {src.name} starting at {start}s, {width}px wide, "
+                       f"{fps} fps, into {relpath(out, root)}?")
+            approved = await approve(ctx, self.config, self.name, "video_to_gif", summary,
+                                     {"input": src.name, "output": relpath(out, root), "start": start,
+                                      "duration": duration})
+            return VideoGif(**op_video_to_gif(src, out, start, duration, width, fps), approved_by=approved)

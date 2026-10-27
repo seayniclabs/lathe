@@ -2,6 +2,42 @@
 
 Lathe follows [semantic versioning](https://semver.org). New modules ship switched off.
 
+## 0.4.0
+
+Bundle release: tools, skills and trust features in one install.
+
+**New tools**
+
+- `batch_process` (new `batch` module, off by default): one operation over every file matching a glob in a folder. Operations: `image_resize`, `image_convert`, `image_optimize`, `image_thumbnail`, `pdf_to_images`, `audio_convert`. A dry run is the default and returns the plan. A real run of more than one file asks the person to approve the plan, once. Typed result per file. Inputs are never overwritten.
+- `scrub_metadata` (new `privacy` module, off by default): `inspect` lists a photo's or PDF's metadata and whether it has GPS coordinates. `scrub` writes a clean copy: EXIF, GPS, ICC and XMP for images; Author, Creator, Producer and XMP for PDFs.
+- `pdf_split` (pages per part) and `pdf_compress` (lossless: content streams and duplicate objects) in the `pdf` module.
+- `video_trim` (stream copy, cuts on keyframes) and `video_to_gif` (up to 30 seconds, palette-optimized) in the `media` module.
+
+**Approval for new writing tools**
+
+- `pdf_split`, `pdf_compress`, `video_trim`, `video_to_gif`, `batch_process` and `scrub_metadata` ask the person to approve each run through the MCP client. A client that cannot ask gets `approval_unavailable`, which names the fix.
+- Settings pre-approve a module: `LATHE_<MODULE>_PREAPPROVED=true` (for `pdf`, `media`, `batch` and `privacy`).
+- Every request, approval, decline and refusal goes to a local log at `~/.local/state/lathe/approvals.jsonl`. File contents are not logged. Set `LATHE_APPROVAL_LOG` to move it.
+- The older writing tools (`image_resize`, `image_convert`, `image_optimize`, `image_crop`, `image_thumbnail`, `pdf_merge`, `pdf_to_images`, `audio_convert`, `video_thumbnail`) are unchanged: they write new files without asking and never replace one unless `overwrite=true`.
+
+**Skills**
+
+- Four skills, served as Agent Skills folders in `skills/` and as MCP prompts and resources: `getting-started`, `pdf`, `pdf-forms` and `web-image-prep`. All are MIT licensed and written by Seaynic Labs. No third-party skills are included.
+
+**Discovery, checks and packaging**
+
+- `lathe_modules` lists the skills, the publisher and the homepage.
+- `lathe --doctor` checks the working folder, Pillow and each enabled module's pieces. It prints the install command for each FIX line and exits 1 when something needs fixing.
+- `tool-manifest.lock.json` locks every tool description, prompt and the server instructions. CI fails when they change without the lock changing.
+- `scripts/security_card.py` prints the README security card from the live server. CI checks it is current.
+- The Claude Code plugin manifest pins `lathe-mcp[pdf,ocr]==0.4.0`.
+- `SECURITY.md` and `CREDITS.md` added.
+
+**Compatibility**
+
+- The 17 tools from 0.3.0 keep their names, arguments and results. Four new tools (`pdf_split`, `pdf_compress`, `video_trim`, `video_to_gif`) arrive in modules that are already on. `batch_process` and `scrub_metadata` arrive switched off.
+- The `ModulesResult` gains `skills`, `publisher` and `homepage` fields.
+
 ## 0.3.0
 
 - `lathe-mcp` is now also a command, so `uvx lathe-mcp` works (as MCP registry installs run it). `lathe` still works.

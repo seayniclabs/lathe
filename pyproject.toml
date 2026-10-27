@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lathe-mcp"
-version = "0.3.0"
-description = "MCP bundle for anyone who handles files and media: images, PDFs, audio and video, and OCR, all on your machine."
+version = "0.4.0"
+description = "MCP bundle for anyone who handles files and media: images, PDFs, audio and video, OCR, batch runs and metadata removal, all on your machine."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -17,7 +17,7 @@ dependencies = [
     "Pillow>=10.0",
     "pydantic>=2.7",
 ]
-keywords = ["mcp", "model-context-protocol", "files", "image", "pdf", "audio", "video", "ocr"]
+keywords = ["mcp", "model-context-protocol", "files", "image", "pdf", "audio", "video", "ocr", "batch", "metadata", "skills"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -39,6 +39,14 @@ lathe-mcp = "lathe.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lathe"]
+
+# One source for the skills: the repo's skills/ folder ships inside the package too,
+# so the server can serve it as MCP prompts and resources.
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "lathe/skills"
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "skills", "tests", "scripts", "README.md", "LICENSE", "CREDITS.md", "CHANGELOG.md", "SECURITY.md", "server.json", ".claude-plugin", ".mcp.json", "tool-manifest.lock.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

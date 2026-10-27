@@ -167,6 +167,90 @@ def _target_size(w: int, h: int, width, height, percentage) -> tuple[int, int]:
     raise LatheError("images", "bad_input", "provide width, height, or percentage.", "pass one of them.")
 
 
+# --- operations on resolved paths. The tools below and batch_process both call these. ---
+
+def op_resize(src: Path, out: Path, width, height, percentage) -> dict:
+    fmt = _format_for(out)
+    with _open(src) as raw:
+        img, _ = _upright(raw)
+        original = [img.width, img.height]
+        new_w, new_h = _target_size(img.width, img.height, width, height, percentage)
+        _check_pixels(new_w, new_h)
+        img = _for_format(img.resize((new_w, new_h), Image.Resampling.LANCZOS), fmt)
+        saved = _save(img, out, fmt)
+    return {**saved, "original_size": original}
+
+
+def op_convert(src: Path, out: Path, format: str) -> dict:
+    fmt = FORMAT_BY_NAME.get(format.strip().lower())
+    if fmt is None:
+        raise LatheError("images", "bad_input", f"unsupported format {format!r}.",
+                         "use png, jpeg, webp, avif or bmp.")
+    if FORMAT_BY_EXT.get(out.suffix.lower()) != fmt:
+        raise LatheError("images", "bad_input", f"output extension {out.suffix!r} does not match {fmt}.",
+                         "name the output with the matching extension, such as .jpg for jpeg.")
+    quality = {"JPEG": 85, "WEBP": 85, "AVIF": 80}.get(fmt)
+    with _open(src) as raw:
+        input_format = raw.format
+        img, _ = _upright(raw)
+        img = _for_format(img, fmt)
+        kwargs = {"quality": quality} if quality else {}
+        saved = _save(img, out, fmt, **kwargs)
+    return {**saved, "input_format": input_format}
+
+
+def op_optimize(src: Path, out: Path, quality: int, strip_metadata: bool) -> dict:
+    fmt = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP"}.get(out.suffix.lower())
+    if fmt is None:
+        raise LatheError("images", "bad_input", f"optimize writes .jpg, .png or .webp, not {out.suffix!r}.",
+                         "name the output with one of those extensions.")
+    original_bytes = src.stat().st_size
+    with _open(src) as raw:
+        img, rotated = _upright(raw)
+        img = _for_format(img, fmt)
+        kwargs: dict = {"optimize": True}
+        if fmt in ("JPEG", "WEBP"):
+            kwargs["quality"] = quality
+        if not strip_metadata:
+            icc = raw.info.get("icc_profile")
+            if icc:
+                kwargs["icc_profile"] = icc
+            exif = raw.getexif()
+            if len(exif):
+                if rotated:
+                    exif[ORIENTATION] = 1  # the pixels are already upright
+                kwargs["exif"] = exif.tobytes()
+        saved = _save(img, out, fmt, **kwargs)
+    new_bytes = saved["output_bytes"]
+    savings = round((1 - new_bytes / original_bytes) * 100, 1) if original_bytes else 0.0
+    return {**saved, "original_bytes": original_bytes, "savings_percent": savings}
+
+
+def op_crop(src: Path, out: Path, x: int, y: int, width: int, height: int) -> dict:
+    fmt = _format_for(out)
+    with _open(src) as raw:
+        img, _ = _upright(raw)
+        if x + width > img.width or y + height > img.height:
+            raise LatheError("images", "bad_input",
+                             f"crop ({x},{y},{width},{height}) is outside the {img.width}x{img.height} image.",
+                             "keep x + width and y + height inside the image size.")
+        box = (x, y, x + width, y + height)
+        cropped = _for_format(img.crop(box), fmt)
+        saved = _save(cropped, out, fmt)
+    return {**saved, "crop_box": list(box)}
+
+
+def op_thumbnail(src: Path, out: Path, size: int) -> dict:
+    fmt = _format_for(out)
+    with _open(src) as raw:
+        img, _ = _upright(raw)
+        original = [img.width, img.height]
+        img = _for_format(img.copy(), fmt)
+        img.thumbnail((size, size), Image.Resampling.LANCZOS)
+        saved = _save(img, out, fmt)
+    return {**saved, "original_size": original, "max_dimension": size}
+
+
 _TOOLS = (
     ToolSpec("image_info", "Image metadata: width, height, format, mode, file size, and EXIF tags (capped)."),
     ToolSpec("image_resize", "Resize an image by width, height, or percentage. Keeps the aspect ratio when only one "
@@ -207,65 +291,21 @@ class ImagesModule(Module):
                          percentage: float | None = None, overwrite: bool = False) -> ResizeResult:
             src = self.input_file(input_path)
             out = self.output_file(output_path, overwrite, inputs=[src])
-            fmt = _format_for(out)
-            with _open(src) as raw:
-                img, _ = _upright(raw)
-                original = [img.width, img.height]
-                new_w, new_h = _target_size(img.width, img.height, width, height, percentage)
-                _check_pixels(new_w, new_h)
-                img = _for_format(img.resize((new_w, new_h), Image.Resampling.LANCZOS), fmt)
-                saved = _save(img, out, fmt)
-            return ResizeResult(**saved, original_size=original)
+            result = op_resize(src, out, width, height, percentage)
+            return ResizeResult(**result)
 
         @tool(mcp, "image_convert")
         def image_convert(input_path: str, output_path: str, format: str, overwrite: bool = False) -> ConvertResult:
             src = self.input_file(input_path)
             out = self.output_file(output_path, overwrite, inputs=[src])
-            fmt = FORMAT_BY_NAME.get(format.strip().lower())
-            if fmt is None:
-                raise LatheError("images", "bad_input", f"unsupported format {format!r}.",
-                                 "use png, jpeg, webp, avif or bmp.")
-            if FORMAT_BY_EXT.get(out.suffix.lower()) != fmt:
-                raise LatheError("images", "bad_input", f"output extension {out.suffix!r} does not match {fmt}.",
-                                 "name the output with the matching extension, such as .jpg for jpeg.")
-            quality = {"JPEG": 85, "WEBP": 85, "AVIF": 80}.get(fmt)
-            with _open(src) as raw:
-                input_format = raw.format
-                img, _ = _upright(raw)
-                img = _for_format(img, fmt)
-                kwargs = {"quality": quality} if quality else {}
-                saved = _save(img, out, fmt, **kwargs)
-            return ConvertResult(**saved, input_format=input_format)
+            return ConvertResult(**op_convert(src, out, format))
 
         @tool(mcp, "image_optimize")
         def image_optimize(input_path: str, output_path: str, quality: Annotated[int, Field(ge=1, le=100)] = 80,
                            strip_metadata: bool = True, overwrite: bool = False) -> OptimizeResult:
             src = self.input_file(input_path)
             out = self.output_file(output_path, overwrite, inputs=[src])
-            fmt = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP"}.get(out.suffix.lower())
-            if fmt is None:
-                raise LatheError("images", "bad_input", f"optimize writes .jpg, .png or .webp, not {out.suffix!r}.",
-                                 "name the output with one of those extensions.")
-            original_bytes = src.stat().st_size
-            with _open(src) as raw:
-                img, rotated = _upright(raw)
-                img = _for_format(img, fmt)
-                kwargs: dict = {"optimize": True}
-                if fmt in ("JPEG", "WEBP"):
-                    kwargs["quality"] = quality
-                if not strip_metadata:
-                    icc = raw.info.get("icc_profile")
-                    if icc:
-                        kwargs["icc_profile"] = icc
-                    exif = raw.getexif()
-                    if len(exif):
-                        if rotated:
-                            exif[ORIENTATION] = 1  # the pixels are already upright
-                        kwargs["exif"] = exif.tobytes()
-                saved = _save(img, out, fmt, **kwargs)
-            new_bytes = saved["output_bytes"]
-            savings = round((1 - new_bytes / original_bytes) * 100, 1) if original_bytes else 0.0
-            return OptimizeResult(**saved, original_bytes=original_bytes, savings_percent=savings)
+            return OptimizeResult(**op_optimize(src, out, quality, strip_metadata))
 
         @tool(mcp, "image_crop")
         def image_crop(input_path: str, output_path: str, x: Annotated[int, Field(ge=0)], y: Annotated[int, Field(ge=0)],
@@ -273,29 +313,11 @@ class ImagesModule(Module):
                        overwrite: bool = False) -> CropResult:
             src = self.input_file(input_path)
             out = self.output_file(output_path, overwrite, inputs=[src])
-            fmt = _format_for(out)
-            with _open(src) as raw:
-                img, _ = _upright(raw)
-                if x + width > img.width or y + height > img.height:
-                    raise LatheError("images", "bad_input",
-                                     f"crop ({x},{y},{width},{height}) is outside the {img.width}x{img.height} image.",
-                                     "keep x + width and y + height inside the image size.")
-                box = (x, y, x + width, y + height)
-                cropped = _for_format(img.crop(box), fmt)
-                saved = _save(cropped, out, fmt)
-            return CropResult(**saved, crop_box=list(box))
+            return CropResult(**op_crop(src, out, x, y, width, height))
 
         @tool(mcp, "image_thumbnail")
         def image_thumbnail(input_path: str, output_path: str, size: Annotated[int, Field(ge=1, le=4096)] = 128,
                             overwrite: bool = False) -> ThumbnailResult:
             src = self.input_file(input_path)
             out = self.output_file(output_path, overwrite, inputs=[src])
-            fmt = _format_for(out)
-            with _open(src) as raw:
-                img, _ = _upright(raw)
-                original = [img.width, img.height]
-                img = _for_format(img.copy(), fmt)
-                img.thumbnail((size, size), Image.Resampling.LANCZOS)
-                saved = _save(img, out, fmt)
-            return ThumbnailResult(**saved, original_size=original, max_dimension=size)
-
+            return ThumbnailResult(**op_thumbnail(src, out, size))

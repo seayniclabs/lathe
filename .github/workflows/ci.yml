@@ -20,6 +20,12 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv venv -p ${{ matrix.python }} && uv pip install -e '.[dev]'
       - run: .venv/bin/pytest -q
+      - name: Skills have license, source and author
+        run: python3 scripts/check_skills.py
+      - name: Tool descriptions match the lock
+        run: .venv/bin/python scripts/tool_lock.py --check
+      - name: README security card is current
+        run: .venv/bin/python scripts/security_card.py --check
   scan:
     runs-on: ubuntu-latest
     steps:

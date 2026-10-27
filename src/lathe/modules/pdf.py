@@ -1,8 +1,8 @@
-"""PDF tools: metadata, text (with OCR fallback), merge, and page rendering.
+"""PDF tools: metadata, text (with OCR fallback), merge, page rendering, split and compress.
 
-Uses pypdf (the ``pdf`` extra) for reading and merging, and ghostscript for
-rendering pages to images. Text extraction falls back to OCR when a page has no
-text layer and the OCR pieces are installed.
+Uses pypdf (the ``pdf`` extra) for reading, merging, splitting and compressing, and
+ghostscript for rendering pages to images. Text extraction falls back to OCR when a
+page has no text layer and the OCR pieces are installed.
 
 Note: no ``from __future__ import annotations`` here (see images.py).
 """
@@ -13,15 +13,18 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Literal
 
+from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
 
 from ..errors import LatheError
+from ..gate import approve
 from ..paths import atomic_write, resolve_dir
-from . import (GHOSTSCRIPT, PYPDF, PYTESSERACT, TESSERACT, Module, Setting, ToolSpec, READ, WRITE,
-               parse_pages, window)
+from . import (GHOSTSCRIPT, PREAPPROVED, PYPDF, PYTESSERACT, TESSERACT, Module, Setting, ToolSpec, READ, WRITE,
+               parse_pages, relpath, window)
 
 OCR_PAGE_LIMIT = 50
 RENDER_TIMEOUT = 300
+SPLIT_MAX_PARTS = 500
 
 
 class PdfInfo(BaseModel):
@@ -57,6 +60,24 @@ class PdfImages(BaseModel):
     count: int
     format: str
     dpi: int
+
+
+class PdfSplit(BaseModel):
+    output_dir: str
+    files: list[str]
+    count: int
+    total_pages: int
+    pages_per_file: int
+    approved_by: str | None = None
+
+
+class PdfCompress(BaseModel):
+    output_path: str
+    output_bytes: int
+    original_bytes: int
+    savings_percent: float = Field(description="Negative when the copy is larger than the input.")
+    pages: int
+    approved_by: str | None = None
 
 
 def _reader(path: Path, allow_encrypted: bool = False):
@@ -105,6 +126,84 @@ def _ocr_pages(src: Path, idx: list[int]) -> tuple[str, str, str | None]:
     return "\n\n".join(t for t in texts if t).strip(), "ocr", note
 
 
+# --- operations on resolved paths. The tools below and batch_process both call these. ---
+
+def op_pdf_to_images(src: Path, dest: Path, idx: list[int], fmt: str, dpi: int, overwrite: bool) -> dict:
+    if dest.exists() and not dest.is_dir():
+        raise LatheError("core", "not_a_file", f"{dest.name!r} is a file, not a folder.", "give a folder name.")
+    dest.mkdir(parents=True, exist_ok=True)
+    staging = dest / f".lathe-{uuid.uuid4().hex[:8]}"
+    staging.mkdir()
+    try:
+        rendered = _render(src, idx[0] + 1, idx[-1] + 1, staging, fmt, dpi)
+        clashes = [f.name for f in rendered if (dest / f.name).exists()]
+        if clashes and not overwrite:
+            raise LatheError("core", "exists", f"{', '.join(clashes[:3])} already exist in {dest.name!r}.",
+                             "pass overwrite=true to replace them, or use an empty folder.")
+        images = []
+        for f in rendered:
+            target = dest / f.name
+            f.replace(target)
+            images.append(str(target))
+    finally:
+        for f in staging.glob("*"):
+            f.unlink()
+        staging.rmdir()
+    return {"output_dir": str(dest), "images": images, "count": len(images), "format": fmt, "dpi": dpi}
+
+
+def op_split(src: Path, dest: Path, pages_per_file: int, overwrite: bool) -> dict:
+    from pypdf import PdfWriter
+
+    reader = _reader(src)
+    total = len(reader.pages)
+    chunks = [list(range(i, min(i + pages_per_file, total))) for i in range(0, total, pages_per_file)]
+    names = [f"{src.stem}-part-{k:03d}.pdf" for k in range(1, len(chunks) + 1)]
+    dest.mkdir(parents=True, exist_ok=True)
+    clashes = [n for n in names if (dest / n).exists()]
+    if clashes and not overwrite:
+        raise LatheError("core", "exists", f"{', '.join(clashes[:3])} already exist in {dest.name!r}.",
+                         "pass overwrite=true to replace them, or use an empty folder.")
+    files = []
+    for name, chunk in zip(names, chunks):
+        def write(tmp: Path, chunk=chunk) -> None:
+            writer = PdfWriter()
+            for i in chunk:
+                writer.add_page(reader.pages[i])
+            writer.write(str(tmp))
+            writer.close()
+
+        target = dest / name
+        atomic_write(target, write)
+        files.append(str(target))
+    return {"output_dir": str(dest), "files": files, "count": len(files), "total_pages": total,
+            "pages_per_file": pages_per_file}
+
+
+def op_compress(src: Path, out: Path) -> dict:
+    from pypdf import PdfWriter
+
+    reader = _reader(src)
+    original_bytes = src.stat().st_size
+    writer = PdfWriter(clone_from=reader)
+    for page in writer.pages:
+        page.compress_content_streams()
+    try:  # pypdf 6 names: remove duplicate objects and unreferenced ones
+        writer.compress_identical_objects(remove_duplicates=True, remove_unreferenced=True)
+    except TypeError:  # pypdf 4 and 5
+        writer.compress_identical_objects(True, True)
+
+    def write(tmp: Path) -> None:
+        writer.write(str(tmp))
+        writer.close()
+
+    atomic_write(out, write)
+    new_bytes = out.stat().st_size
+    savings = round((1 - new_bytes / original_bytes) * 100, 1) if original_bytes else 0.0
+    return {"output_path": str(out), "output_bytes": new_bytes, "original_bytes": original_bytes,
+            "savings_percent": savings, "pages": len(reader.pages)}
+
+
 _TOOLS = (
     ToolSpec("pdf_info", "PDF metadata: page count, file size, encryption, title, author and creator.",
              requires=(PYPDF,)),
@@ -115,13 +214,18 @@ _TOOLS = (
              requires=(PYPDF,), annotations=WRITE),
     ToolSpec("pdf_to_images", "Render PDF pages to PNG or JPEG files in a folder, at a chosen DPI. Needs ghostscript.",
              requires=(PYPDF, GHOSTSCRIPT), annotations=WRITE),
+    ToolSpec("pdf_split", "Split a PDF into parts of N pages each, written as new PDFs in a folder. Asks the person to "
+             "approve the run unless the pdf module is pre-approved.", requires=(PYPDF,), annotations=WRITE, gated=True),
+    ToolSpec("pdf_compress", "Write a smaller copy of a PDF. Lossless: it recompresses content streams and removes "
+             "duplicate objects; images are not re-encoded. Asks the person to approve the run unless pre-approved.",
+             requires=(PYPDF,), annotations=WRITE, gated=True),
 )
 
 
 class PdfModule(Module):
     name = "pdf"
-    summary = "PDF files: info, text extraction (with OCR fallback), merge, render pages to images."
-    settings: tuple[Setting, ...] = ()
+    summary = "PDF files: info, text extraction (with OCR fallback), merge, render pages, split, compress. Needs the pdf extra."
+    settings: tuple[Setting, ...] = (PREAPPROVED,)
     tools = _TOOLS
 
     def register(self, mcp, config) -> None:
@@ -194,24 +298,34 @@ class PdfModule(Module):
             total = len(reader.pages)
             idx = parse_pages(pages, total) if pages else list(range(total))
             dest = resolve_dir(output_dir, self.config.working_dir())
+            return PdfImages(**op_pdf_to_images(src, dest, idx, format, dpi, overwrite))
+
+        @tool(mcp, "pdf_split")
+        async def pdf_split(ctx: Context, input_path: str, output_dir: str,
+                            pages_per_file: Annotated[int, Field(ge=1, le=10_000)] = 1,
+                            overwrite: bool = False) -> PdfSplit:
+            src = self.input_file(input_path)
+            total = len(_reader(src).pages)
+            dest = resolve_dir(output_dir, self.config.working_dir())
             if dest.exists() and not dest.is_dir():
                 raise LatheError("core", "not_a_file", f"{output_dir!r} is a file, not a folder.", "give a folder name.")
-            dest.mkdir(parents=True, exist_ok=True)
-            staging = dest / f".lathe-{uuid.uuid4().hex[:8]}"
-            staging.mkdir()
-            try:
-                rendered = _render(src, idx[0] + 1, idx[-1] + 1, staging, format, dpi)
-                clashes = [f.name for f in rendered if (dest / f.name).exists()]
-                if clashes and not overwrite:
-                    raise LatheError("core", "exists", f"{', '.join(clashes[:3])} already exist in {output_dir!r}.",
-                                     "pass overwrite=true to replace them, or use an empty folder.")
-                images = []
-                for f in rendered:
-                    target = dest / f.name
-                    f.replace(target)
-                    images.append(str(target))
-            finally:
-                for f in staging.glob("*"):
-                    f.unlink()
-                staging.rmdir()
-            return PdfImages(output_dir=str(dest), images=images, count=len(images), format=format, dpi=dpi)
+            parts = -(-total // pages_per_file)
+            if parts > SPLIT_MAX_PARTS:
+                raise LatheError("pdf", "bad_input", f"that split would write {parts} files; the limit is {SPLIT_MAX_PARTS}.",
+                                 "use a larger pages_per_file.")
+            summary = (f"Split {src.name} ({total} pages) into {parts} PDF file(s) of up to {pages_per_file} "
+                       f"page(s) each, in {relpath(dest, self.config.working_dir())}?")
+            approved = await approve(ctx, self.config, self.name, "pdf_split", summary,
+                                     {"input": src.name, "pages": total, "parts": parts,
+                                      "output_dir": relpath(dest, self.config.working_dir())})
+            return PdfSplit(**op_split(src, dest, pages_per_file, overwrite), approved_by=approved)
+
+        @tool(mcp, "pdf_compress")
+        async def pdf_compress(ctx: Context, input_path: str, output_path: str, overwrite: bool = False) -> PdfCompress:
+            src = self.input_file(input_path)
+            out = self.output_file(output_path, overwrite, inputs=[src])
+            _reader(src)  # refuse encrypted or unreadable files before asking
+            summary = f"Write a lossless compressed copy of {src.name} as {relpath(out, self.config.working_dir())}?"
+            approved = await approve(ctx, self.config, self.name, "pdf_compress", summary,
+                                     {"input": src.name, "output": relpath(out, self.config.working_dir())})
+            return PdfCompress(**op_compress(src, out), approved_by=approved)

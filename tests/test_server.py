@@ -22,8 +22,8 @@ from lathe.server import build_server
 ALL = {
     "health", "lathe_modules",
     "image_info", "image_resize", "image_convert", "image_optimize", "image_crop", "image_thumbnail",
-    "pdf_info", "pdf_extract_text", "pdf_merge", "pdf_to_images",
-    "audio_info", "audio_convert", "video_info", "video_thumbnail",
+    "pdf_info", "pdf_extract_text", "pdf_merge", "pdf_to_images", "pdf_split", "pdf_compress",
+    "audio_info", "audio_convert", "video_info", "video_thumbnail", "video_trim", "video_to_gif",
     "ocr_image",
 }
 
