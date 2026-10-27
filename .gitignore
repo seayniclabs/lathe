@@ -12,3 +12,6 @@ htmlcov/
 .env.*
 # Internal reports stay on the machine that made them.
 *-drift-qa-report.json
+
+# mcp-publisher writes login tokens into the working directory
+.mcpregistry_*
