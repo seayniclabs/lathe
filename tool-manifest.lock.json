@@ -1,6 +1,6 @@
 {
   "bundle": "lathe",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "entries": {
     "instructions": "13261e5f27f1769b08efc62858f7acb64ceb2b52518effb55cf5e855f9649273",
     "prompt:getting-started": "d735e62cc0042d4eae7c499d387da27fcacb2f1ebeb43d49dbb8c02d51aaf16b",

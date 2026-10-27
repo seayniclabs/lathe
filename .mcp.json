@@ -4,7 +4,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "lathe-mcp[pdf,ocr]==0.4.0",
+        "lathe-mcp[pdf,ocr]==0.4.1",
         "lathe"
       ]
     }

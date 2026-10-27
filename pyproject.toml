@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lathe-mcp"
-version = "0.4.0"
+version = "0.4.1"
 description = "MCP bundle for anyone who handles files and media: images, PDFs, audio and video, OCR, batch runs and metadata removal, all on your machine."
 readme = "README.md"
 requires-python = ">=3.11"

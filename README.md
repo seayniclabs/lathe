@@ -72,7 +72,7 @@ uvx --from "lathe-mcp[pdf,ocr]" lathe --version       # with PDF and OCR
 Pinned to this release, for a repeatable setup:
 
 ```bash
-uvx --from "lathe-mcp[pdf,ocr]==0.4.0" lathe --version
+uvx --from "lathe-mcp[pdf,ocr]==0.4.1" lathe --version
 ```
 
 Or with pip:
@@ -85,7 +85,7 @@ Extras: `pdf` (pypdf), `ocr` (pytesseract), `full` (both). The images module nee
 
 ### Claude Code plugin
 
-The repository is also a Claude Code plugin. Its `.mcp.json` pins `lathe-mcp[pdf,ocr]==0.4.0`, and it ships the skills in `skills/`. The plugin is one way to install; the MCP config below works in any client.
+The repository is also a Claude Code plugin. Its `.mcp.json` pins `lathe-mcp[pdf,ocr]==0.4.1`, and it ships the skills in `skills/`. The plugin is one way to install; the MCP config below works in any client.
 
 ### System programs
 

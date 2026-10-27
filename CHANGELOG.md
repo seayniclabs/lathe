@@ -2,6 +2,14 @@
 
 Lathe follows [semantic versioning](https://semver.org). New modules ship switched off.
 
+## 0.4.1 — 2026-10-27
+
+**No code changes.** Change the pin to `lathe-mcp==0.4.1`.
+
+### Release process
+
+- Built and published by GitHub Actions (`release.yml`) with PyPI trusted publishing. The wheel and sdist carry PyPI provenance and a GitHub build attestation; check a download with `gh attestation verify <file> --owner seayniclabs`.
+
 ## 0.4.0
 
 Bundle release: tools, skills and trust features in one install.
