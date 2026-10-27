@@ -4,6 +4,7 @@ Lathe follows [semantic versioning](https://semver.org). New modules ship switch
 
 ## 0.3.0
 
+- `lathe-mcp` is now also a command, so `uvx lathe-mcp` works (as MCP registry installs run it). `lathe` still works.
 - Security: ffmpeg and ffprobe only read local files (`-protocol_whitelist file,pipe`), and playlist, concat and manifest inputs are refused, so a crafted media file can't make Lathe fetch URLs or read other files.
 - Free: all tools are included. The license-key gate and the upgrade tool are gone.
 - MIT everywhere: `LICENSE`, the README and `pyproject.toml` agree.

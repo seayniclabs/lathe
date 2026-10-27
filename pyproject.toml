@@ -35,6 +35,7 @@ dev = ["pytest>=8", "pypdf>=4", "pytesseract>=0.3.10"]
 
 [project.scripts]
 lathe = "lathe.server:main"
+lathe-mcp = "lathe.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lathe"]
