@@ -1,7 +1,7 @@
 # Lathe
 <!-- mcp-name: io.github.seayniclabs/lathe -->
 
-**Made by [Seaynic Labs](https://seayniclabs.com).** We build tools like this around a business's own systems. [See custom integrations](https://seayniclabs.com/#business).
+**Made by [Seaynic Labs](https://seayniclabs.com).** Need tools like this built around your own systems? [We do that](https://seayniclabs.com/#business).
 
 Lathe is an MCP bundle for anyone who handles files and media. It gives your AI assistant local tools for images, PDFs, audio and video, and OCR, plus batch runs and metadata removal. The files stay on your machine.
 
@@ -258,4 +258,4 @@ MIT. Made by [Seaynic Labs](https://seayniclabs.com). Third-party libraries and 
 
 ---
 
-**Built by [Seaynic Labs](https://seayniclabs.com).** We build tools like this around a business's own systems: local-first, with a person approving each batch run. [See custom integrations](https://seayniclabs.com/#business).
+**Built by [Seaynic Labs](https://seayniclabs.com).** We build tools like this around a business's own systems: local-first, with a person approving every change. [See custom integrations](https://seayniclabs.com/#business).
